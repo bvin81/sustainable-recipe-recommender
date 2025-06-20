@@ -12,7 +12,7 @@
 
 ## 📋 Projekt Leírás
 
-Intelligens rețecpt ajánló rendszer felhasználói tanulmánya, amely három különböző megközelítést hasonlít össze:
+Intelligens rececpt ajánló rendszer felhasználói tanulmánya, amely három különböző megközelítést hasonlít össze:
 
 - **V1 (Baseline)**: Alaprendszer - ingrediens hasonlóság alapján
 - **V2 (Hybrid)**: Fejlett rendszer - egészség és környezeti tényezőkkel  
