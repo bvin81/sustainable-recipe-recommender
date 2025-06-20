@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PERSISTENT - user_study.py
-Minden app start-nál ellenőrzi és létrehozza a valós recepteket
+COMPLETE FIX - user_study.py
+Teljes user_study.py persistent receptekkel + minden route
 """
 
 import os
@@ -114,13 +114,13 @@ class DatabaseManager:
             print(f"Interaction logging error: {e}")
 
 class EnhancedRecipeRecommender:
-    """PERSISTENT - Recept ajánló rendszer MINDEN ALKALOMMAL feldolgozza a recepteket"""
+    """PERSISTENT - Recept ajánló rendszer automatikus recept generálással"""
     
     def __init__(self):
         self.recipes_df = self.ensure_recipe_data()
     
     def ensure_recipe_data(self) -> pd.DataFrame:
-        """KRITIKUS: Minden app start-nál biztosítja a valós receptek elérhetőségét"""
+        """Biztosítja a receptek elérhetőségét minden app start-nál"""
         print("🔄 Recipe data initialization...")
         
         # Először próbáljuk betölteni a létező CSV-t
@@ -142,7 +142,7 @@ class EnhancedRecipeRecommender:
         return self.generate_persistent_recipes()
     
     def generate_persistent_recipes(self) -> pd.DataFrame:
-        """Valós receptek generálása minden alkalommal"""
+        """Valós receptek generálása vagy enhanced samples"""
         try:
             # Próbáljuk meg a valós feldolgozást
             from recipe_preprocessor import HungarianRecipeProcessor
@@ -174,7 +174,7 @@ class EnhancedRecipeRecommender:
             return self.create_enhanced_samples()
     
     def create_enhanced_samples(self) -> pd.DataFrame:
-        """Bővített sample receptek ha a valós feldolgozás nem sikerül"""
+        """Enhanced sample receptek valós képekkel"""
         print("🔧 Creating enhanced sample recipes...")
         
         # Bővített sample receptek (20 darab)
@@ -213,41 +213,6 @@ class EnhancedRecipeRecommender:
                 'instructions': '1. A káposztaleveleket leforrázuk. 2. Megtöltjük a húsos rizzsel. 3. Rétegesen főzzük.',
                 'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/34/72/1/picMxH2gK.jpg',
                 'HSI': 70.0, 'ESI': 55.0, 'PPI': 88.0, 'composite_score': 67.6
-            },
-            {
-                'recipeid': 6, 'title': 'Túrós Csusza',
-                'ingredients': 'széles metélt, túró, tejföl, szalonna, hagyma, só, bors',
-                'instructions': '1. A tésztát megfőzzük. 2. A szalonnát kisütjük. 3. Összekeverjük a túróval és tejföllel.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/52/18/9/picVnB4mP.jpg',
-                'HSI': 65.0, 'ESI': 55.0, 'PPI': 80.0, 'composite_score': 65.0
-            },
-            {
-                'recipeid': 7, 'title': 'Paprikás Krumpli',
-                'ingredients': 'burgonya, hagyma, paprika, kolbász, só, bors, petrezselyem',
-                'instructions': '1. A burgonyát felkockázzuk. 2. Hagymát dinsztelünk. 3. Paprikát hozzáadunk és megfőzzük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/67/83/4/picRdF2nQ.jpg',
-                'HSI': 72.0, 'ESI': 78.0, 'PPI': 82.0, 'composite_score': 76.4
-            },
-            {
-                'recipeid': 8, 'title': 'Rántott Karfiol',
-                'ingredients': 'karfiol, liszt, tojás, zsemlemorzsa, olaj, só, bors',
-                'instructions': '1. A karfiolt rózsákra szedjük. 2. Lisztbe, tojásba, morzsába forgatjuk. 3. Kisütjük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/29/64/7/picTxK8jR.jpg',
-                'HSI': 78.0, 'ESI': 85.0, 'PPI': 65.0, 'composite_score': 76.2
-            },
-            {
-                'recipeid': 9, 'title': 'Magyaros Pörkölt',
-                'ingredients': 'marhahús, hagyma, paprika, paradicsom, só, bors, majoranna',
-                'instructions': '1. A húst felkockázzuk. 2. Hagymával megpároljuk. 3. Paprikával ízesítjük és főzzük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/41/95/2/picNbH5kL.jpg',
-                'HSI': 68.0, 'ESI': 52.0, 'PPI': 87.0, 'composite_score': 66.4
-            },
-            {
-                'recipeid': 10, 'title': 'Hortobágyi Palacsinta',
-                'ingredients': 'palacsinta, csirkehús, gomba, hagyma, paprika, tejföl, sajt',
-                'instructions': '1. Palacsintát sütünk. 2. Tölteléket készítünk. 3. Megtöltjük és sütőben melegítjük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/76/31/8/picGfM4pS.jpg',
-                'HSI': 70.0, 'ESI': 60.0, 'PPI': 80.0, 'composite_score': 68.0
             }
         ]
         
@@ -325,8 +290,280 @@ def get_user_version():
         session['version'] = random.choice(versions)
     return session['version']
 
-# MINDEN TÖBBI ROUTE UGYANÚGY MARAD...
-# (A teljes user_study_fixed.py tartalmát ide másolnám, de rövidség kedvéért kihagyom)
+# TELJES ROUTE LISTA - MINDEN HIÁNYZÓ ROUTE PÓTLÁSA
+
+@user_study_bp.route('/')
+def welcome():
+    """Üdvözlő oldal"""
+    return render_template('user_study/welcome.html')
+
+@user_study_bp.route('/register', methods=['GET', 'POST'])
+def register():
+    """Felhasználó regisztráció"""
+    if request.method == 'POST':
+        try:
+            age_group = request.form.get('age_group')
+            education = request.form.get('education')
+            cooking_frequency = request.form.get('cooking_frequency')
+            sustainability_awareness = int(request.form.get('sustainability_awareness', 3))
+            
+            # Consent mezők
+            consent_participation = bool(request.form.get('consent_participation'))
+            consent_data = bool(request.form.get('consent_data'))
+            consent_publication = bool(request.form.get('consent_publication'))
+            consent_contact = bool(request.form.get('consent_contact'))
+            
+            # Validáció
+            if not all([age_group, education, cooking_frequency]):
+                return render_template('user_study/register.html', 
+                                     error='Kérjük töltse ki az összes kötelező mezőt.')
+            
+            if not all([consent_participation, consent_data, consent_publication]):
+                return render_template('user_study/register.html', 
+                                     error='A kötelező beleegyezések szükségesek a folytatáshoz.')
+            
+            # Verzió hozzárendelése
+            version = get_user_version()
+            
+            # Felhasználó mentése adatbázisba
+            conn = db.get_connection()
+            cursor = conn.execute('''
+                INSERT INTO participants 
+                (age_group, education, cooking_frequency, sustainability_awareness,
+                 consent_participation, consent_data, consent_publication, consent_contact, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (age_group, education, cooking_frequency, sustainability_awareness,
+                  consent_participation, consent_data, consent_publication, consent_contact, version))
+            
+            user_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            
+            # Session beállítása
+            session['user_id'] = user_id
+            session['version'] = version
+            session['registration_time'] = datetime.datetime.now().isoformat()
+            
+            print(f"✅ User registered successfully: ID={user_id}, Version={version}")
+            
+            return redirect(url_for('user_study.instructions'))
+            
+        except Exception as e:
+            print(f"Registration error: {e}")
+            return render_template('user_study/register.html', 
+                                 error='Regisztráció sikertelen. Kérjük próbálja újra.')
+    
+    return render_template('user_study/register.html')
+
+@user_study_bp.route('/instructions')
+def instructions():
+    """Instrukciók oldal"""
+    if 'user_id' not in session:
+        return redirect(url_for('user_study.register'))
+    
+    return render_template('user_study/instructions_hidden.html')
+
+@user_study_bp.route('/study')
+def study():
+    """Fő tanulmány oldal"""
+    if 'user_id' not in session:
+        return redirect(url_for('user_study.register'))
+    
+    user_id = session['user_id']
+    version = get_user_version()
+    
+    # Ajánlások lekérése
+    recommendations = recommender.get_recommendations(user_id, version)
+    
+    print(f"✅ Study loaded for user {user_id}, version {version}, {len(recommendations)} recommendations")
+    
+    return render_template('user_study/study_enhanced.html', 
+                         recommendations=recommendations)
+
+@user_study_bp.route('/rate_recipe', methods=['POST'])
+def rate_recipe():
+    """Recept értékelése"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        user_id = session['user_id']
+        recipe_id = int(request.json.get('recipe_id'))
+        rating = int(request.json.get('rating'))
+        explanation_helpful = request.json.get('explanation_helpful')
+        view_time = request.json.get('view_time_seconds', 0)
+        interaction_order = request.json.get('interaction_order', 0)
+        
+        # Értékelés mentése
+        db.log_interaction(user_id, recipe_id, rating=rating,
+                          explanation_helpful=explanation_helpful,
+                          view_time=view_time,
+                          interaction_order=interaction_order)
+        
+        print(f"✅ Recipe rated: User={user_id}, Recipe={recipe_id}, Rating={rating}")
+        
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        print(f"Rating error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@user_study_bp.route('/questionnaire', methods=['GET', 'POST'])
+def questionnaire():
+    """Záró kérdőív"""
+    if 'user_id' not in session:
+        return redirect(url_for('user_study.register'))
+    
+    version = get_user_version()
+    
+    if request.method == 'POST':
+        try:
+            user_id = session['user_id']
+            
+            # Válaszok gyűjtése
+            system_usability = int(request.form.get('system_usability'))
+            recommendation_quality = int(request.form.get('recommendation_quality'))
+            trust_level = int(request.form.get('trust_level'))
+            explanation_clarity = request.form.get('explanation_clarity')
+            sustainability_importance = int(request.form.get('sustainability_importance'))
+            overall_satisfaction = int(request.form.get('overall_satisfaction'))
+            additional_comments = request.form.get('additional_comments', '')
+            
+            # explanation_clarity kezelése (v1-nél nincs)
+            explanation_clarity_int = int(explanation_clarity) if explanation_clarity else None
+            
+            # Válaszok mentése
+            conn = db.get_connection()
+            conn.execute('''
+                INSERT INTO questionnaire 
+                (user_id, system_usability, recommendation_quality, trust_level, 
+                 explanation_clarity, sustainability_importance, overall_satisfaction, additional_comments)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, system_usability, recommendation_quality, trust_level,
+                  explanation_clarity_int, sustainability_importance, overall_satisfaction, additional_comments))
+            
+            # Befejezés jelölése
+            conn.execute('''
+                UPDATE participants SET is_completed = 1 WHERE user_id = ?
+            ''', (user_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ Questionnaire completed for user {user_id}")
+            
+            return redirect(url_for('user_study.thank_you'))
+            
+        except Exception as e:
+            print(f"Questionnaire error: {e}")
+            return render_template('user_study/questionnaire.html', 
+                                 version=version,
+                                 error='Kérdőív mentése sikertelen. Kérjük próbálja újra.')
+    
+    return render_template('user_study/questionnaire.html', version=version)
+
+@user_study_bp.route('/thank_you')
+def thank_you():
+    """Köszönet oldal"""
+    version = get_user_version()
+    return render_template('user_study/thank_you.html', version=version)
+
+@user_study_bp.route('/admin/stats')
+def admin_stats():
+    """Valós idejű admin statisztikák"""
+    try:
+        conn = db.get_connection()
+        
+        # Alapstatisztikák
+        stats = {}
+        
+        # Összes résztvevő
+        total_participants = conn.execute('SELECT COUNT(*) as count FROM participants').fetchone()['count']
+        stats['total_participants'] = total_participants
+        
+        # Befejezett résztvevők
+        completed_participants = conn.execute(
+            'SELECT COUNT(*) as count FROM participants WHERE is_completed = 1'
+        ).fetchone()['count']
+        stats['completed_participants'] = completed_participants
+        
+        # Befejezési arány
+        stats['completion_rate'] = completed_participants / total_participants if total_participants > 0 else 0
+        
+        # Verzió eloszlás
+        version_distribution = []
+        version_data = conn.execute('''
+            SELECT version, 
+                   COUNT(*) as count,
+                   SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed
+            FROM participants 
+            GROUP BY version
+        ''').fetchall()
+        
+        for row in version_data:
+            version_distribution.append({
+                'version': row['version'],
+                'count': row['count'],
+                'completed': row['completed']
+            })
+        
+        stats['version_distribution'] = version_distribution
+        
+        # Átlagos értékelések
+        rating_data = conn.execute('''
+            SELECT p.version, AVG(i.rating) as avg_rating, COUNT(*) as count
+            FROM interactions i
+            JOIN participants p ON i.user_id = p.user_id
+            WHERE i.rating IS NOT NULL
+            GROUP BY p.version
+        ''').fetchall()
+        
+        average_ratings = []
+        for row in rating_data:
+            average_ratings.append({
+                'version': row['version'],
+                'avg_rating': row['avg_rating'],
+                'count': row['count']
+            })
+        
+        stats['average_ratings'] = average_ratings
+        
+        # Kérdőív eredmények
+        questionnaire_data = conn.execute('''
+            SELECT p.version,
+                   AVG(q.system_usability) as avg_usability,
+                   AVG(q.recommendation_quality) as avg_quality,
+                   AVG(q.trust_level) as avg_trust,
+                   AVG(q.explanation_clarity) as avg_clarity,
+                   AVG(q.overall_satisfaction) as avg_satisfaction
+            FROM questionnaire q
+            JOIN participants p ON q.user_id = p.user_id
+            GROUP BY p.version
+        ''').fetchall()
+        
+        questionnaire_results = []
+        for row in questionnaire_data:
+            questionnaire_results.append({
+                'version': row['version'],
+                'avg_usability': row['avg_usability'],
+                'avg_quality': row['avg_quality'],
+                'avg_trust': row['avg_trust'],
+                'avg_clarity': row['avg_clarity'],
+                'avg_satisfaction': row['avg_satisfaction']
+            })
+        
+        stats['questionnaire_results'] = questionnaire_results
+        
+        # Átlagos interakciók/felhasználó
+        total_interactions = conn.execute('SELECT COUNT(*) as count FROM interactions').fetchone()['count']
+        stats['avg_interactions_per_user'] = total_interactions / total_participants if total_participants > 0 else 0
+        
+        conn.close()
+        
+        return render_template('user_study/admin_stats.html', stats=stats)
+        
+    except Exception as e:
+        return f"Stats error: {e}", 500
 
 # Blueprint exportálása
 __all__ = ['user_study_bp']
