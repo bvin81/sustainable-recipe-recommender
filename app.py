@@ -90,6 +90,43 @@ def create_fallback_app():
     
     return fallback_app
 
+    @app.route('/debug/images')
+def debug_images():
+    try:
+        import pandas as pd
+        
+        # Jelenlegi receptek ellenőrzése
+        df = pd.read_csv('data/processed_recipes.csv')
+        
+        result = f"<h2>Debug Info:</h2>"
+        result += f"Receptek száma: {len(df)}<br>"
+        result += f"Oszlopok: {list(df.columns)}<br><br>"
+        
+        result += "<h3>Első 3 recept képei:</h3>"
+        for i in range(min(3, len(df))):
+            recipe = df.iloc[i]
+            result += f"<b>{recipe['title']}:</b><br>"
+            result += f"Kép URL: {recipe.get('images', 'NINCS')}<br>"
+            result += f"<img src='{recipe.get('images', '')}' width='200' onerror='this.style.display=\"none\"'><br><br>"
+        
+        # CSV ellenőrzés
+        try:
+            csv_df = pd.read_csv('hungarian_recipes_github.csv')
+            result += f"<h3>Eredeti CSV:</h3>"
+            result += f"Sorok: {len(csv_df)}<br>"
+            result += f"Oszlopok: {list(csv_df.columns)}<br>"
+            
+            if 'images' in csv_df.columns:
+                first_image = csv_df['images'].iloc[0]
+                result += f"Első kép minta: {first_image[:200]}...<br>"
+        except:
+            result += "<h3>Eredeti CSV: NEM TALÁLHATÓ</h3>"
+        
+        return result
+        
+    except Exception as e:
+        return f"Debug error: {e}"
+
 # App inicializálás
 try:
     app = create_app()
