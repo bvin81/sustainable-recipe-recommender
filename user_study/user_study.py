@@ -141,13 +141,23 @@ class EnhancedRecipeRecommender:
         print("🇭🇺 Generating fresh recipe data...")
         return self.generate_persistent_recipes()
     
-    def generate_persistent_recipes(self) -> pd.DataFrame:
-        """Valós receptek generálása vagy enhanced samples"""
-        try:
-            # Próbáljuk meg a valós feldolgozást
-            from recipe_preprocessor import HungarianRecipeProcessor
+def generate_persistent_recipes(self) -> pd.DataFrame:
+    """FORCE - Valós receptek generálása minden alkalommal"""
+    print("🇭🇺 FORCE processing real Hungarian recipes...")
+    
+    try:
+        # FORCE import - ne adjuk fel könnyen
+        import sys
+        sys.path.insert(0, '.')  # Current directory hozzáadása
+        
+        from recipe_preprocessor import HungarianRecipeProcessor
+        
+        print("📊 HungarianRecipeProcessor imported successfully")
+        
+        # Check if CSV exists
+        if os.path.exists("hungarian_recipes_github.csv"):
+            print("✅ hungarian_recipes_github.csv found!")
             
-            print("🇭🇺 Processing real Hungarian recipes...")
             processor = HungarianRecipeProcessor("hungarian_recipes_github.csv")
             
             success = processor.process_all(
@@ -155,75 +165,83 @@ class EnhancedRecipeRecommender:
                 sample_size=50
             )
             
-            if success:
+            if success and os.path.exists("data/processed_recipes.csv"):
                 df = pd.read_csv("data/processed_recipes.csv")
-                print(f"✅ REAL Hungarian recipes processed: {len(df)} recipes")
+                print(f"🎉 SUCCESS! REAL Hungarian recipes processed: {len(df)} recipes")
+                
+                # Minta képek kiírása
+                if 'images' in df.columns:
+                    print("🖼️ Sample image URLs:")
+                    for i in range(min(3, len(df))):
+                        img_url = df.iloc[i]['images']
+                        print(f"   {i+1}. {img_url[:80]}...")
+                
                 return df
             else:
-                print("⚠️ Real recipe processing failed, using enhanced samples")
-                return self.create_enhanced_samples()
+                print("⚠️ Processing failed, falling back to enhanced samples")
+                return self.create_enhanced_samples_with_real_images()
                 
-        except ImportError:
-            print("⚠️ recipe_preprocessor not available, using enhanced samples")
-            return self.create_enhanced_samples()
-        except FileNotFoundError:
-            print("⚠️ hungarian_recipes_github.csv not found, using enhanced samples")
-            return self.create_enhanced_samples()
-        except Exception as e:
-            print(f"⚠️ Recipe processing error: {e}, using enhanced samples")
-            return self.create_enhanced_samples()
+        else:
+            print("⚠️ hungarian_recipes_github.csv NOT FOUND, using enhanced samples")
+            return self.create_enhanced_samples_with_real_images()
+            
+    except ImportError as e:
+        print(f"⚠️ recipe_preprocessor import failed: {e}")
+        return self.create_enhanced_samples_with_real_images()
+    except Exception as e:
+        print(f"⚠️ Recipe processing error: {e}")
+        return self.create_enhanced_samples_with_real_images()
     
-    def create_enhanced_samples(self) -> pd.DataFrame:
-        """Enhanced sample receptek valós képekkel"""
-        print("🔧 Creating enhanced sample recipes...")
-        
-        # Bővített sample receptek (20 darab)
-        enhanced_recipes = [
-            {
-                'recipeid': 1, 'title': 'Hagyományos Gulyásleves',
-                'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
-                'instructions': '1. A húst kockákra vágjuk és enyhén megsózzuk. 2. Megdinszteljük a hagymát, hozzáadjuk a paprikát. 3. Felöntjük vízzel és főzzük 1.5 órát. 4. Hozzáadjuk a burgonyát és tovább főzzük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/27/20/7/picVfzLZo.jpg',
-                'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
-            },
-            {
-                'recipeid': 2, 'title': 'Vegetáriánus Lecsó',
-                'ingredients': 'paprika, paradicsom, hagyma, tojás, kolbász helyett tofu, olívaolaj, só, bors, fokhagyma',
-                'instructions': '1. A hagymát és fokhagymát megdinszteljük olívaolajban. 2. Hozzáadjuk a felszeletelt paprikát. 3. Paradicsomot és kockára vágott tofut adunk hozzá. 4. Tojással dúsítjuk.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/15/35/8/picMcG8hd.jpg',
-                'HSI': 85.0, 'ESI': 90.0, 'PPI': 70.0, 'composite_score': 83.0
-            },
-            {
-                'recipeid': 3, 'title': 'Rántott Schnitzel Burgonyával',
-                'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
-                'instructions': '1. A húst kikalapáljuk és megsózzuk. 2. Lisztbe, majd felvert tojásba, végül zsemlemorzsába forgatjuk. 3. Forró olajban mindkét oldalán kisütjük. 4. A burgonyát héjában megfőzzük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/83/25/2/picB8vSqd.jpg',
-                'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
-            },
-            {
-                'recipeid': 4, 'title': 'Halászlé Szegedi Módra',
-                'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
-                'instructions': '1. A halakat megtisztítjuk és feldaraboljuk. 2. A halak fejéből és farkából erős alapot főzünk. 3. Az alapot leszűrjük és beletesszük a haldarabokat. 4. Paprikával ízesítjük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/91/47/3/picKdL9hf.jpg',
-                'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
-            },
-            {
-                'recipeid': 5, 'title': 'Töltött Káposzta',
-                'ingredients': 'savanyú káposzta, darált hús, rizs, hagyma, paprika, kolbász, tejföl',
-                'instructions': '1. A káposztaleveleket leforrázuk. 2. Megtöltjük a húsos rizzsel. 3. Rétegesen főzzük.',
-                'images': 'https://img.sndimg.com/food/image/upload/w_555,h_416,c_fit,fl_progressive,q_95/v1/img/recipes/34/72/1/picMxH2gK.jpg',
-                'HSI': 70.0, 'ESI': 55.0, 'PPI': 88.0, 'composite_score': 67.6
-            }
-        ]
-        
-        df = pd.DataFrame(enhanced_recipes)
-        
-        # CSV mentése
-        os.makedirs('data', exist_ok=True)
-        df.to_csv('data/processed_recipes.csv', index=False, encoding='utf-8')
-        
-        print(f"✅ Enhanced sample recipes created: {len(enhanced_recipes)} recipes with real images")
-        return df
+def create_enhanced_samples_with_real_images(self) -> pd.DataFrame:
+    """Fallback enhanced samples PLACEHOLDER képekkel ha minden más sikertelen"""
+    print("🔧 Creating fallback samples with placeholders...")
+    
+    enhanced_recipes = [
+        {
+            'recipeid': 1, 'title': 'Hagyományos Gulyásleves',
+            'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
+            'instructions': '1. A húst kockákra vágjuk és enyhén megsózzuk. 2. Megdinszteljük a hagymát, hozzáadjuk a paprikát. 3. Felöntjük vízzel és főzzük 1.5 órát. 4. Hozzáadjuk a burgonyát és tovább főzzük.',
+            'images': '',  # Üres → placeholder
+            'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
+        },
+        {
+            'recipeid': 2, 'title': 'Vegetáriánus Lecsó',
+            'ingredients': 'paprika, paradicsom, hagyma, tojás, kolbász helyett tofu, olívaolaj, só, bors, fokhagyma',
+            'instructions': '1. A hagymát és fokhagymát megdinszteljük olívaolajban. 2. Hozzáadjuk a felszeletelt paprikát. 3. Paradicsomot és kockára vágott tofut adunk hozzá. 4. Tojással dúsítjük.',
+            'images': '',
+            'HSI': 85.0, 'ESI': 90.0, 'PPI': 70.0, 'composite_score': 83.0
+        },
+        {
+            'recipeid': 3, 'title': 'Rántott Schnitzel Burgonyával',
+            'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
+            'instructions': '1. A húst kikalapáljuk és megsózzuk. 2. Lisztbe, majd felvert tojásba, végül zsemlemorzsába forgatjuk. 3. Forró olajban mindkét oldalán kisütjük. 4. A burgonyát héjában megfőzzük.',
+            'images': '',
+            'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
+        },
+        {
+            'recipeid': 4, 'title': 'Halászlé Szegedi Módra',
+            'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
+            'instructions': '1. A halakat megtisztítjuk és feldaraboljuk. 2. A halak fejéből és farkából erős alapot főzünk. 3. Az alapot leszűrjük és beletesszük a haldarabokat. 4. Paprikával ízesítjük.',
+            'images': '',
+            'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
+        },
+        {
+            'recipeid': 5, 'title': 'Töltött Káposzta',
+            'ingredients': 'savanyú káposzta, darált hús, rizs, hagyma, paprika, kolbász, tejföl',
+            'instructions': '1. A káposztaleveleket leforrázuk. 2. Megtöltjük a húsos rizzsel. 3. Rétegesen főzzük.',
+            'images': '',
+            'HSI': 70.0, 'ESI': 55.0, 'PPI': 88.0, 'composite_score': 67.6
+        }
+    ]
+    
+    df = pd.DataFrame(enhanced_recipes)
+    
+    # CSV mentése
+    os.makedirs('data', exist_ok=True)
+    df.to_csv('data/processed_recipes.csv', index=False, encoding='utf-8')
+    
+    print(f"✅ Fallback recipes with placeholders: {len(enhanced_recipes)} recipes")
+    return df
     
     def get_recommendations(self, user_id, version):
         """Ajánlások lekérése verzió alapján"""
