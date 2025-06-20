@@ -33,3 +33,4 @@ Ez a projekt automatikusan deploy-ol Heroku-ra minden commit után GitHub Action
 - [Tudományos publikációk](docs/paper/)
 
 ## 🏗️ Projekt Struktúra
+<!-- Updated for Heroku deployment - 2025-01-20 -->
