@@ -137,6 +137,14 @@
         .required {
             color: #e74c3c;
         }
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #f44336;
+        }
     </style>
 </head>
 <body>
@@ -153,6 +161,12 @@
         <div class="info-note">
             ℹ️ <strong>Fontos:</strong> Minden adat névtelen marad. Ezek az információk csak statisztikai elemzéshez szükségesek.
         </div>
+
+        {% if error %}
+        <div class="error-message">
+            ❌ {{ error }}
+        </div>
+        {% endif %}
 
         <form method="POST" id="registrationForm">
             <div class="form-group">
@@ -275,6 +289,14 @@
             );
 
             submitBtn.disabled = !(allFieldsFilled && allConsentGiven);
+            
+            if (allFieldsFilled && allConsentGiven) {
+                submitBtn.style.background = 'linear-gradient(45deg, #27ae60, #2ecc71)';
+                submitBtn.textContent = '🚀 Tovább a Tanulmányhoz';
+            } else {
+                submitBtn.style.background = '#bdc3c7';
+                submitBtn.textContent = '⏳ Töltse ki minden mezőt';
+            }
         }
 
         // Event listeners az összes kötelező mezőre
@@ -291,17 +313,37 @@
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             
+            // Final validation
+            if (submitBtn.disabled) {
+                alert('Kérjük töltse ki az összes kötelező mezőt és fogadja el a szükséges feltételeket!');
+                return;
+            }
+            
             // Progress bar animáció
             document.querySelector('.progress-fill').style.width = '50%';
             
             // Gomb letiltása a dupla submission ellen
             submitBtn.disabled = true;
             submitBtn.textContent = '⏳ Feldolgozás...';
+            submitBtn.style.background = '#95a5a6';
             
             // Form elküldése
             setTimeout(() => {
                 form.submit();
             }, 500);
+        });
+
+        // Debug: form adatok console-ra
+        form.addEventListener('submit', function() {
+            console.log('Form submission data:');
+            console.log('Age group:', document.getElementById('age_group').value);
+            console.log('Education:', document.getElementById('education').value);
+            console.log('Cooking frequency:', document.getElementById('cooking_frequency').value);
+            console.log('Sustainability awareness:', document.getElementById('sustainability_awareness').value);
+            console.log('Consent participation:', document.getElementById('consent_participation').checked);
+            console.log('Consent data:', document.getElementById('consent_data').checked);
+            console.log('Consent publication:', document.getElementById('consent_publication').checked);
+            console.log('Consent contact:', document.getElementById('consent_contact').checked);
         });
     </script>
 </body>
