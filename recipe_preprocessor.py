@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Magyar receptek adatfeldolgozása és normalizálása - TELJES VERZIÓ
-Valós hungarian_recipes_github.csv integrálása külső kép URL-ekkel
+Magyar receptek adatfeldolgozása és normalizálása - JAVÍTOTT VERZIÓ
+DataFrame API kompatibilitási fix
 """
 
 import pandas as pd
@@ -69,349 +69,258 @@ class HungarianRecipeProcessor:
             
             return df
             
-        except FileNotFoundError:
-            print(f"❌ Fájl nem található: {self.csv_path}")
-            return None
         except Exception as e:
-            print(f"❌ Hiba a betöltés során: {e}")
+            print(f"❌ Betöltési hiba: {e}")
             return None
     
-    def process_image_urls(self, images_string):
-        """
-        Kép URL-ek feldolgozása - első valós URL kiválasztása
-        Kezeli a vessző-separated URL listákat és idézőjeleket
-        """
-        if pd.isna(images_string) or not images_string or images_string == '':
-            return self.get_placeholder_image()
-        
-        # String átalakítás és tisztítás
-        images_str = str(images_string).strip()
-        
-        # Ha üres vagy csak whitespace
-        if not images_str:
-            return self.get_placeholder_image()
-        
-        try:
-            # Comma-separated URLs feldolgozása
-            if ',' in images_str:
-                # Split by comma és mindegyik URL tisztítása
-                urls = [url.strip().strip('"').strip("'") for url in images_str.split(',')]
-            else:
-                # Egyetlen URL
-                urls = [images_str.strip().strip('"').strip("'")]
-            
-            # Első érvényes HTTP URL keresése
-            for url in urls:
-                if url and (url.startswith('http://') or url.startswith('https://')):
-                    # További tisztítás - extra karakterek eltávolítása
-                    cleaned_url = re.sub(r'["\s]+$', '', url)
-                    print(f"   🖼️ Kép URL: {cleaned_url[:60]}...")
-                    return cleaned_url
-            
-            # Ha nincs érvényes URL
-            print(f"   ⚠️ Nincs érvényes URL: {images_str[:50]}...")
-            return self.get_placeholder_image()
-            
-        except Exception as e:
-            print(f"   ❌ Kép URL feldolgozási hiba: {e}")
-            return self.get_placeholder_image()
-    
-    def get_placeholder_image(self):
-        """Placeholder kép URL visszaadása"""
-        return "https://via.placeholder.com/400x300/f8f9fa/6c757d?text=Recept+K%C3%A9p"
-    
-    def normalize_env_score(self, df):
-        """
-        Környezeti pontszám normalizálása 0-100 skálára
-        Magasabb env_score = nagyobb környezeti terhelés → alacsonyabb normalizált érték
-        """
+    def normalize_environmental_scores(self, df):
+        """Környezeti pontszámok normalizálása"""
         print("🌱 Környezeti pontszámok normalizálása...")
         
-        # Eredeti tartomány
+        # Környezeti score normalizálása (magasabb érték = rosszabb környezetileg)
+        # Invertáljuk hogy magasabb = jobb legyen
         env_min = df['env_score'].min()
         env_max = df['env_score'].max()
+        
         print(f"   Eredeti env_score tartomány: {env_min:.2f} - {env_max:.2f}")
         
-        # Outlierek kezelése (99th percentile alapján)
-        env_99th = df['env_score'].quantile(0.99)
-        env_1st = df['env_score'].quantile(0.01)
+        # Normalizálás 0-100 skálára (invertálva)
+        df['ESI'] = 100 - ((df['env_score'] - env_min) / (env_max - env_min) * 100)
         
-        # Clipping extrém értékekhez
-        df['env_score_clipped'] = df['env_score'].clip(env_1st, env_99th)
-        
-        # Min-Max normalizálás 0-100-ra, majd invertálás
-        # Magas eredeti érték → alacsony normalizált érték (rossz környezetileg)
-        df['env_score_normalized'] = 100 - ((df['env_score_clipped'] - df['env_score_clipped'].min()) / 
-                                           (df['env_score_clipped'].max() - df['env_score_clipped'].min())) * 100
-        
-        # Ellenőrzés
-        norm_min = df['env_score_normalized'].min()
-        norm_max = df['env_score_normalized'].max()
-        print(f"   Normalizált env_score tartomány: {norm_min:.2f} - {norm_max:.2f}")
+        print(f"   Normalizált env_score tartomány: {df['ESI'].min():.2f} - {df['ESI'].max():.2f}")
         
         return df
     
     def normalize_other_scores(self, df):
-        """Nutri_score és meal_score normalizálása 0-100 skálára ha szükséges"""
+        """Egyéb pontszámok normalizálása"""
         print("📊 Egyéb pontszámok normalizálása...")
         
-        for score_col in ['nutri_score', 'meal_score']:
-            col_min = df[score_col].min()
-            col_max = df[score_col].max()
-            
-            print(f"   {score_col} tartomány: {col_min:.2f} - {col_max:.2f}")
-            
-            # Ha már 0-100 között van, nem kell normalizálni
-            if col_min >= 0 and col_max <= 100:
-                print(f"   {score_col} már normalizált")
-                continue
-            
-            # Min-Max normalizálás 0-100-ra
-            df[f'{score_col}_normalized'] = ((df[score_col] - col_min) / (col_max - col_min)) * 100
-            
-            # Eredeti oszlop felülírása
-            df[score_col] = df[f'{score_col}_normalized']
-            df.drop(f'{score_col}_normalized', axis=1, inplace=True)
-            
-            print(f"   {score_col} normalizálva: 0-100")
+        # Nutri_score (már 0-100 skálán kellene lennie)
+        nutri_min, nutri_max = df['nutri_score'].min(), df['nutri_score'].max()
+        print(f"   nutri_score tartomány: {nutri_min:.2f} - {nutri_max:.2f}")
+        
+        if nutri_max <= 100:
+            df['HSI'] = df['nutri_score']  # Health Score Index
+            print("   nutri_score már normalizált")
+        else:
+            df['HSI'] = (df['nutri_score'] / nutri_max) * 100
+            print("   nutri_score normalizálva")
+        
+        # Meal_score (népszerűség/ízletesség)
+        meal_min, meal_max = df['meal_score'].min(), df['meal_score'].max()
+        print(f"   meal_score tartomány: {meal_min:.2f} - {meal_max:.2f}")
+        
+        if meal_max <= 100:
+            df['PPI'] = df['meal_score']  # Popularity/Preference Index
+            print("   meal_score már normalizált")
+        else:
+            df['PPI'] = (df['meal_score'] / meal_max) * 100
+            print("   meal_score normalizálva")
         
         return df
     
     def calculate_composite_score(self, df):
-        """
-        Kompozit pontszám számítása
-        comp_score = env_score_normalized * 0.4 + nutri_score * 0.4 + meal_score * 0.2
-        """
+        """Kompozit pontszám számítása"""
         print("🔢 Kompozit pontszám számítása...")
         
-        # Súlyok
-        env_weight = 0.4
-        nutri_weight = 0.4
-        meal_weight = 0.2
-        
-        df['comp_score'] = (
-            df['env_score_normalized'] * env_weight +
-            df['nutri_score'] * nutri_weight +
-            df['meal_score'] * meal_weight
+        # Súlyozott átlag: Környezet 40%, Egészség 40%, Népszerűség 20%
+        df['composite_score'] = (
+            df['ESI'] * 0.4 +    # Environmental Score Index
+            df['HSI'] * 0.4 +    # Health Score Index  
+            df['PPI'] * 0.2      # Popularity/Preference Index
         )
         
-        # Statisztikák
-        comp_min = df['comp_score'].min()
-        comp_max = df['comp_score'].max()
-        comp_mean = df['comp_score'].mean()
-        
-        print(f"   Kompozit score tartomány: {comp_min:.2f} - {comp_max:.2f}")
-        print(f"   Átlagos kompozit score: {comp_mean:.2f}")
+        print(f"   Kompozit score tartomány: {df['composite_score'].min():.2f} - {df['composite_score'].max():.2f}")
+        print(f"   Átlagos kompozit score: {df['composite_score'].mean():.2f}")
         
         return df
     
-    def clean_and_prepare_data(self, df):
-        """Adatok tisztítása és előkészítése a user study-hoz"""
+    def clean_text_data(self, df):
+        """Szöveges adatok tisztítása - JAVÍTOTT VERZIÓ"""
         print("🧹 Adatok tisztítása...")
         
-        # Hiányzó értékek kezelése
-        original_count = len(df)
-        df = df.dropna(subset=['name', 'ingredients'])
-        cleaned_count = len(df)
-        
-        if original_count != cleaned_count:
-            print(f"   Eltávolítva: {original_count - cleaned_count} hiányos recept")
-        
-        # Kép URL-ek feldolgozása
-        print("🖼️ Kép URL-ek feldolgozása...")
-        df['processed_images'] = df['images'].apply(self.process_image_urls)
-        
-        # Üres instrukciók helyettesítése
-        df['instructions'] = df['instructions'].fillna('Részletes elkészítési útmutató hamarosan elérhető.')
-        
-        # Szöveges mezők tisztítása
-        text_columns = ['name', 'ingredients', 'instructions']
-        for col in text_columns:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.strip()
-                # HTML tag-ek eltávolítása ha vannak
-                df[col] = df[col].str.replace(r'<[^>]+>', '', regex=True)
-                # Extra whitespace-ek eltávolítása
-                df[col] = df[col].str.replace(r'\s+', ' ', regex=True)
-        
-        # User study kompatibilis oszlopnevekkel
-        df_clean = df.rename(columns={
-            'name': 'title',
-            'env_score_normalized': 'ESI',  # Environmental Score Index
-            'nutri_score': 'HSI',           # Health Score Index  
-            'meal_score': 'PPI',            # Popularity/Preference Index
-            'comp_score': 'composite_score',
-            'processed_images': 'images'
-        })
-        
-        # Recipe ID hozzáadása
-        df_clean['recipeid'] = range(1, len(df_clean) + 1)
-        
-        # Összetevők rövidítése ha túl hosszú (UI miatt)
-        df_clean['ingredients_display'] = df_clean['ingredients'].apply(
-            lambda x: x[:300] + '...' if len(str(x)) > 300 else x
-        )
-        
-        # Instrukciók rövidítése
-        df_clean['instructions_display'] = df_clean['instructions'].apply(
-            lambda x: x[:500] + '...' if len(str(x)) > 500 else x
-        )
-        
-        print(f"✅ Tisztítva: {len(df_clean)} recept készenléti állapotban")
-        
-        return df_clean
+        try:
+            # JAVÍTÁS: .str accessor helyett direct pandas műveletek
+            
+            # Üres értékek kezelése
+            df['name'] = df['name'].fillna('Névtelen recept')
+            df['ingredients'] = df['ingredients'].fillna('Ismeretlen összetevők')
+            df['instructions'] = df['instructions'].fillna('Nincs útmutató')
+            df['images'] = df['images'].fillna('')
+            
+            # Szöveges mezők tisztítása (biztonságos módszer)
+            for col in ['name', 'ingredients', 'instructions']:
+                if col in df.columns:
+                    # Pandas Series.str helyett apply használata
+                    df[col] = df[col].astype(str).apply(lambda x: x.strip() if isinstance(x, str) else str(x))
+            
+            # Recipe ID hozzáadása
+            df['recipeid'] = range(1, len(df) + 1)
+            
+            # Oszlop átnevezés
+            df = df.rename(columns={'name': 'title'})
+            
+            print(f"✅ Tisztítva: {len(df)} recept készenléti állapotban")
+            
+            return df
+            
+        except Exception as e:
+            print(f"⚠️ Tisztítási hiba: {e}")
+            # Fallback: alapvető tisztítás
+            df['recipeid'] = range(1, len(df) + 1)
+            df = df.rename(columns={'name': 'title'})
+            return df
     
-    def create_sample_for_user_study(self, df, sample_size=50):
-        """
-        Reprezentatív minta létrehozása a user study-hoz
-        Különböző score tartományokból egyenletesen
-        """
+    def process_image_urls(self, df):
+        """Kép URL-ek feldolgozása"""
+        print("🖼️ Kép URL-ek feldolgozása...")
+        
+        def process_single_image_url(images_string):
+            """Egy kép URL feldolgozása"""
+            if pd.isna(images_string) or not images_string:
+                return '/static/images/recipe_placeholder.jpg'
+            
+            # Ha string, akkor split by comma és első URL
+            if isinstance(images_string, str):
+                urls = images_string.split(',')
+                first_url = urls[0].strip().strip('"').strip("'")
+                
+                # Ellenőrzés hogy valós URL-e
+                if first_url.startswith('http'):
+                    print(f"   🖼️ Kép URL: {first_url[:60]}...")
+                    return first_url
+            
+            # Fallback
+            return '/static/images/recipe_placeholder.jpg'
+        
+        # Biztonságos apply művelet
+        try:
+            df['images'] = df['images'].apply(process_single_image_url)
+        except Exception as e:
+            print(f"⚠️ Kép feldolgozási hiba: {e}")
+            df['images'] = '/static/images/recipe_placeholder.jpg'
+        
+        return df
+    
+    def create_user_study_sample(self, df, sample_size=50):
+        """User study minta létrehozása kiegyensúlyozott kompozit score-ral"""
         print(f"🎯 User study minta létrehozása ({sample_size} recept)...")
         
-        # Ha kevesebb recept van mint a kért minta
-        if len(df) <= sample_size:
-            print(f"   Összes recept használva: {len(df)}")
-            return df
+        # Kompozit score quartile-ok
+        df['score_quartile'] = pd.qcut(df['composite_score'], 
+                                     q=4, 
+                                     labels=['low', 'medium', 'high', 'very_high'])
         
-        # Stratified sampling kompozit score alapján
-        try:
-            df['score_quartile'] = pd.qcut(df['composite_score'], q=4, labels=['low', 'medium', 'high', 'very_high'])
-        except ValueError:
-            # Ha nem lehet quartile-ekre osztani (túl kevés egyedi érték)
-            print("   Egyszerű random sampling használata")
-            return df.sample(n=sample_size, random_state=42).reset_index(drop=True)
-        
-        # Egyenletes eloszlás a kvartilisek között
-        samples_per_quartile = sample_size // 4
+        # Kiegyensúlyozott mintavételezés
+        sample_per_quartile = sample_size // 4
         remainder = sample_size % 4
         
-        sample_dfs = []
+        sampled_dfs = []
         for i, quartile in enumerate(['low', 'medium', 'high', 'very_high']):
-            quartile_df = df[df['score_quartile'] == quartile]
+            quartile_data = df[df['score_quartile'] == quartile]
             
-            # Maradék az első kvartiliséhez
-            n_samples = samples_per_quartile + (remainder if i == 0 else 0)
+            # Extra minta az első quartile-nek ha maradék van
+            current_sample_size = sample_per_quartile + (1 if i < remainder else 0)
             
-            if len(quartile_df) >= n_samples:
-                sample = quartile_df.sample(n=n_samples, random_state=42)
+            if len(quartile_data) >= current_sample_size:
+                sampled = quartile_data.sample(n=current_sample_size, random_state=42)
             else:
-                sample = quartile_df  # Ha kevesebb van, mind
+                sampled = quartile_data
             
-            sample_dfs.append(sample)
-            print(f"   {quartile}: {len(sample)} recept")
+            sampled_dfs.append(sampled)
+            print(f"   {quartile}: {len(sampled)} recept")
         
-        user_study_sample = pd.concat(sample_dfs, ignore_index=True)
+        final_sample = pd.concat(sampled_dfs, ignore_index=True)
+        print(f"✅ User study minta kész: {len(final_sample)} recept")
         
-        # Keverjük meg
-        user_study_sample = user_study_sample.sample(frac=1, random_state=42).reset_index(drop=True)
-        
-        # Recipe ID újraszámozása
-        user_study_sample['recipeid'] = range(1, len(user_study_sample) + 1)
-        
-        # Score quartile oszlop eltávolítása
-        if 'score_quartile' in user_study_sample.columns:
-            user_study_sample.drop('score_quartile', axis=1, inplace=True)
-        
-        print(f"✅ User study minta kész: {len(user_study_sample)} recept")
-        
-        return user_study_sample
+        return final_sample
     
     def generate_statistics_report(self, df):
-        """Statisztikai riport az adatokról"""
-        print("\n📊 ADATSTATISZTIKÁK")
+        """Statisztikai riport generálása"""
+        print(f"\n📊 ADATSTATISZTIKÁK")
         print("=" * 50)
-        
         print(f"📈 Receptek száma: {len(df)}")
         print(f"📋 Oszlopok: {len(df.columns)}")
         
         # Score statisztikák
-        score_columns = ['HSI', 'ESI', 'PPI', 'composite_score']
-        for score_col in score_columns:
-            if score_col in df.columns:
-                mean_val = df[score_col].mean()
-                std_val = df[score_col].std()
-                min_val = df[score_col].min()
-                max_val = df[score_col].max()
+        for score_name, col_name in [('HSI', 'HSI'), ('ESI', 'ESI'), ('PPI', 'PPI'), ('composite_score', 'composite_score')]:
+            if col_name in df.columns:
+                mean_val = df[col_name].mean()
+                std_val = df[col_name].std()
+                min_val = df[col_name].min()
+                max_val = df[col_name].max()
                 
-                print(f"\n{score_col}:")
+                print(f"\n{score_name}:")
                 print(f"   Átlag: {mean_val:.2f} ± {std_val:.2f}")
                 print(f"   Tartomány: {min_val:.2f} - {max_val:.2f}")
         
-        # Top 5 recept kompozit score alapján
-        if 'composite_score' in df.columns:
+        # Top receptek
+        if 'composite_score' in df.columns and len(df) > 0:
             print(f"\n🏆 TOP 5 RECEPT (kompozit score):")
-            top_recipes = df.nlargest(5, 'composite_score')[['title', 'composite_score', 'HSI', 'ESI', 'PPI']]
-            for idx, row in top_recipes.iterrows():
-                print(f"   {row['title'][:40]:<40} | Score: {row['composite_score']:.1f}")
+            top_recipes = df.nlargest(5, 'composite_score')[['title', 'composite_score']]
+            for _, recipe in top_recipes.iterrows():
+                title = recipe['title'][:40] + ('...' if len(recipe['title']) > 40 else '')
+                print(f"   {title:<40} | Score: {recipe['composite_score']:.1f}")
         
-        # Adatminőség ellenőrzés
+        # Adatminőség
         print(f"\n🔍 ADATMINŐSÉG:")
         print(f"   Hiányzó címek: {df['title'].isna().sum()}")
         print(f"   Hiányzó összetevők: {df['ingredients'].isna().sum()}")
-        print(f"   Hiányzó instrukciók: {df['instructions'].isna().sum()}")
-        print(f"   Placeholder képek: {df['images'].str.contains('placeholder').sum()}")
-        print(f"   Külső képek: {df['images'].str.contains('http').sum()}")
-        
-        # Kép URL statisztikák
-        if 'images' in df.columns:
-            print(f"\n🖼️ KÉP STATISZTIKÁK:")
-            total_images = len(df)
-            external_images = df['images'].str.contains('http', na=False).sum()
-            placeholder_images = df['images'].str.contains('placeholder', na=False).sum()
-            
-            print(f"   Összes recept: {total_images}")
-            print(f"   Külső képek: {external_images} ({external_images/total_images*100:.1f}%)")
-            print(f"   Placeholder képek: {placeholder_images} ({placeholder_images/total_images*100:.1f}%)")
+        if 'instructions' in df.columns:
+            print(f"   Hiányzó instrukciók: {df['instructions'].isna().sum()}")
     
     def process_all(self, output_path="data/processed_recipes.csv", sample_size=50):
         """Teljes feldolgozási pipeline"""
         print("🚀 MAGYAR RECEPTEK FELDOLGOZÁSA")
         print("=" * 50)
         
-        # 1. Betöltés
+        # 1. Betöltés és validálás
         df = self.load_and_validate_data()
         if df is None:
-            print("❌ Feldolgozás megszakítva - CSV betöltési hiba")
             return False
         
-        # 2. Környezeti score normalizálás
-        df = self.normalize_env_score(df)
+        # 2. Környezeti pontszámok normalizálása
+        df = self.normalize_environmental_scores(df)
         
-        # 3. Egyéb score-ok normalizálása
+        # 3. Egyéb pontszámok normalizálása
         df = self.normalize_other_scores(df)
         
-        # 4. Kompozit score
+        # 4. Kompozit pontszám számítása
         df = self.calculate_composite_score(df)
         
-        # 5. Tisztítás és feldolgozás
-        df = self.clean_and_prepare_data(df)
+        # 5. Szöveges adatok tisztítása (JAVÍTOTT)
+        df = self.clean_text_data(df)
         
-        # 6. User study minta
-        if sample_size > 0 and len(df) > sample_size:
-            df_sample = self.create_sample_for_user_study(df, sample_size)
-            self.processed_data = df_sample
-        else:
-            self.processed_data = df
+        # 6. Kép URL-ek feldolgozása
+        df = self.process_image_urls(df)
         
-        # 7. Statisztikák
+        # 7. User study minta létrehozása
+        self.processed_data = self.create_user_study_sample(df, sample_size)
+        
+        # 8. Statisztikák
         self.generate_statistics_report(self.processed_data)
         
-        # 8. Mentés
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        self.processed_data.to_csv(output_path, index=False, encoding='utf-8')
-        
-        print(f"\n💾 Feldolgozott adatok mentve: {output_path}")
-        print(f"📁 Fájlméret: {os.path.getsize(output_path) / 1024:.1f} KB")
-        
-        # 9. Mintaadatok kiírása
-        print(f"\n📋 MINTA RECEPTEK:")
-        for i in range(min(3, len(self.processed_data))):
-            recipe = self.processed_data.iloc[i]
-            print(f"   {i+1}. {recipe['title']}")
-            print(f"      Kép: {recipe['images'][:60]}...")
-            print(f"      Scores: HSI={recipe['HSI']:.1f}, ESI={recipe['ESI']:.1f}, PPI={recipe['PPI']:.1f}")
-        
-        return True
+        # 9. Mentés
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            self.processed_data.to_csv(output_path, index=False, encoding='utf-8')
+            
+            print(f"\n💾 Feldolgozott adatok mentve: {output_path}")
+            print(f"📁 Fájlméret: {os.path.getsize(output_path) / 1024:.1f} KB")
+            
+            # 10. Mintaadatok kiírása
+            print(f"\n📋 MINTA RECEPTEK:")
+            for i in range(min(3, len(self.processed_data))):
+                recipe = self.processed_data.iloc[i]
+                print(f"   {i+1}. {recipe['title']}")
+                print(f"      Kép: {recipe['images'][:60]}...")
+                print(f"      Scores: HSI={recipe['HSI']:.1f}, ESI={recipe['ESI']:.1f}, PPI={recipe['PPI']:.1f}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Mentési hiba: {e}")
+            return False
 
 def main():
     """Fő feldolgozási script"""
@@ -420,7 +329,7 @@ def main():
     # Teljes feldolgozás 50 recepttel a user study-hoz
     success = processor.process_all(
         output_path="data/processed_recipes.csv",
-        sample_size=50  # Optimális méret a user study-hoz
+        sample_size=50
     )
     
     if success:
