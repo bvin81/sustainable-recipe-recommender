@@ -510,6 +510,16 @@ def export_data(format):
     except Exception as e:
         return f"Export error: {e}", 500
 
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return {
+        'status': 'OK', 
+        'message': 'User Study System is running',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'database': 'connected'
+    }
+
 if __name__ == '__main__':
     # Development szerver
     port = int(os.environ.get('PORT', 5000))
