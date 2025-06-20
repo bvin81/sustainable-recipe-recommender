@@ -1,7 +1,7 @@
 # Data Directory
 
 ## Fájlok:
-- `processed_recipes.csv` - Feldolgozott rețetá adatok
+- `processed_recipes.csv` - Feldolgozott recept adatok
 - `sample_data.csv` - Teszt adatok
 
 ## Megjegyzés:
