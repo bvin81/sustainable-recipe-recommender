@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-COMPLETE FIX - user_study.py
-Teljes user_study.py persistent receptekkel + minden route
+Enhanced User Study System - Működő verzió képekkel
+Template path fix + CSV képek megjelenítése
 """
 
 import os
@@ -13,18 +13,18 @@ import hashlib
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify, g
+from flask import Flask, Blueprint, render_template, request, session, redirect, url_for, jsonify, g
 
 # Project path setup
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Blueprint létrehozása
+# Blueprint létrehozása - TEMPLATE PATH JAVÍTÁS!
 user_study_bp = Blueprint('user_study', __name__, 
                          url_prefix='',
-                         template_folder='templates')
+                         template_folder='templates/user_study')  # KULCS!
 
-class DatabaseManager:
+class UserStudyDatabase:
     """Adatbázis kezelő osztály"""
     
     def __init__(self, db_path="user_study.db"):
@@ -49,12 +49,8 @@ class DatabaseManager:
                 education TEXT NOT NULL,
                 cooking_frequency TEXT NOT NULL,
                 sustainability_awareness INTEGER NOT NULL,
-                consent_participation BOOLEAN NOT NULL DEFAULT 1,
-                consent_data BOOLEAN NOT NULL DEFAULT 1,
-                consent_publication BOOLEAN NOT NULL DEFAULT 1,
-                consent_contact BOOLEAN DEFAULT 0,
                 version TEXT NOT NULL,
-                is_completed BOOLEAN DEFAULT 0,
+                is_completed BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -93,231 +89,202 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
-        print("✅ Database tables initialized successfully")
     
-    def log_interaction(self, user_id, recipe_id, rating=None, 
-                       explanation_helpful=None, view_time=None, 
-                       interaction_order=None):
-        """Felhasználói interakció naplózása"""
-        try:
-            conn = self.get_connection()
-            conn.execute('''
-                INSERT INTO interactions 
-                (user_id, recipe_id, rating, explanation_helpful, 
-                 view_time_seconds, interaction_order)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, recipe_id, rating, explanation_helpful, 
-                  view_time, interaction_order))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Interaction logging error: {e}")
+    def create_user(self, age_group, education, cooking_frequency, sustainability_awareness, version):
+        """Új felhasználó létrehozása"""
+        conn = self.get_connection()
+        cursor = conn.execute('''
+            INSERT INTO participants (age_group, education, cooking_frequency, sustainability_awareness, version)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (age_group, education, cooking_frequency, sustainability_awareness, version))
+        
+        user_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return user_id
+    
+    def log_interaction(self, user_id, recipe_id, rating, explanation_helpful=None, view_time=None, interaction_order=None):
+        """Interakció naplózása"""
+        conn = self.get_connection()
+        conn.execute('''
+            INSERT INTO interactions (user_id, recipe_id, rating, explanation_helpful, view_time_seconds, interaction_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, recipe_id, rating, explanation_helpful, view_time, interaction_order))
+        
+        conn.commit()
+        conn.close()
+    
+    def save_questionnaire(self, user_id, responses):
+        """Kérdőív válaszok mentése"""
+        conn = self.get_connection()
+        conn.execute('''
+            INSERT INTO questionnaire 
+            (user_id, system_usability, recommendation_quality, trust_level, 
+             explanation_clarity, sustainability_importance, overall_satisfaction, additional_comments)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            user_id,
+            responses.get('system_usability'),
+            responses.get('recommendation_quality'),
+            responses.get('trust_level'),
+            responses.get('explanation_clarity'),
+            responses.get('sustainability_importance'),
+            responses.get('overall_satisfaction'),
+            responses.get('additional_comments', '')
+        ))
+        
+        # Mark user as completed
+        conn.execute('''
+            UPDATE participants SET is_completed = TRUE WHERE user_id = ?
+        ''', (user_id,))
+        
+        conn.commit()
+        conn.close()
 
 class EnhancedRecipeRecommender:
-    """PERSISTENT - Recept ajánló rendszer automatikus recept generálással"""
+    """Továbbfejlesztett recept ajánló rendszer - KÉPEKKEL"""
     
     def __init__(self):
-        self.recipes_df = self.ensure_recipe_data()
+        self.recipes_df = self.load_hungarian_recipes()
+        print(f"✅ Receptek betöltve: {len(self.recipes_df) if self.recipes_df is not None else 0}")
     
-    def ensure_recipe_data(self) -> pd.DataFrame:
-        """Biztosítja a receptek elérhetőségét minden app start-nál"""
-        print("🔄 Recipe data initialization...")
-        
-        # Először próbáljuk betölteni a létező CSV-t
-        csv_path = "data/processed_recipes.csv"
-        
-        if os.path.exists(csv_path):
-            try:
+    def load_hungarian_recipes(self) -> pd.DataFrame:
+        """Magyar receptek betöltése - KÉPEKKEL"""
+        try:
+            csv_path = project_root / "data" / "processed_recipes.csv"
+            if csv_path.exists():
                 df = pd.read_csv(csv_path)
-                if len(df) > 10:  # Ha több mint 10 recept, akkor valós adatok
-                    print(f"✅ Existing recipe data loaded: {len(df)} recipes")
-                    return df
-                else:
-                    print(f"⚠️ Only {len(df)} recipes found, regenerating...")
-            except Exception as e:
-                print(f"⚠️ Error loading existing CSV: {e}")
-        
-        # Ha nincs vagy kevés adat, generáljuk újra
-        print("🇭🇺 Generating fresh recipe data...")
-        return self.generate_persistent_recipes()
-    
-def generate_persistent_recipes(self) -> pd.DataFrame:
-    """FORCE - Valós receptek generálása minden alkalommal"""
-    print("🇭🇺 FORCE processing real Hungarian recipes...")
-    
-    try:
-        # FORCE import - ne adjuk fel könnyen
-        import sys
-        sys.path.insert(0, '.')  # Current directory hozzáadása
-        
-        from recipe_preprocessor import HungarianRecipeProcessor
-        
-        print("📊 HungarianRecipeProcessor imported successfully")
-        
-        # Check if CSV exists
-        if os.path.exists("hungarian_recipes_github.csv"):
-            print("✅ hungarian_recipes_github.csv found!")
-            
-            processor = HungarianRecipeProcessor("hungarian_recipes_github.csv")
-            
-            success = processor.process_all(
-                output_path="data/processed_recipes.csv",
-                sample_size=50
-            )
-            
-            if success and os.path.exists("data/processed_recipes.csv"):
-                df = pd.read_csv("data/processed_recipes.csv")
-                print(f"🎉 SUCCESS! REAL Hungarian recipes processed: {len(df)} recipes")
+                print(f"✅ CSV betöltve: {len(df)} recept")
                 
-                # Minta képek kiírása
+                # Képek ellenőrzése
                 if 'images' in df.columns:
-                    print("🖼️ Sample image URLs:")
-                    for i in range(min(3, len(df))):
-                        img_url = df.iloc[i]['images']
-                        print(f"   {i+1}. {img_url[:80]}...")
+                    print(f"🖼️ Képek oszlop megtalálva")
+                    # Debug: első kép URL
+                    if len(df) > 0:
+                        first_image = df['images'].iloc[0]
+                        print(f"🔍 Első kép URL: {first_image}")
+                else:
+                    print("⚠️ Nincs 'images' oszlop")
                 
                 return df
             else:
-                print("⚠️ Processing failed, falling back to enhanced samples")
-                return self.create_enhanced_samples_with_real_images()
-                
-        else:
-            print("⚠️ hungarian_recipes_github.csv NOT FOUND, using enhanced samples")
-            return self.create_enhanced_samples_with_real_images()
-            
-    except ImportError as e:
-        print(f"⚠️ recipe_preprocessor import failed: {e}")
-        return self.create_enhanced_samples_with_real_images()
-    except Exception as e:
-        print(f"⚠️ Recipe processing error: {e}")
-        return self.create_enhanced_samples_with_real_images()
+                print("⚠️ processed_recipes.csv nem található, sample adatok")
+                return self.create_sample_data()
+        except Exception as e:
+            print(f"❌ CSV betöltési hiba: {e}")
+            return self.create_sample_data()
     
-def create_enhanced_samples_with_real_images(self) -> pd.DataFrame:
-    """Fallback enhanced samples PLACEHOLDER képekkel ha minden más sikertelen"""
-    print("🔧 Creating fallback samples with placeholders...")
+    def create_sample_data(self) -> pd.DataFrame:
+        """Sample adatok KÜLSŐ KÉPEKKEL"""
+        sample_recipes = [
+            {
+                'recipeid': 1,
+                'title': 'Hagyományos Gulyásleves',
+                'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
+                'instructions': '1. A húst kockákra vágjuk és enyhén megsózzuk. 2. Megdinszteljük a hagymát, hozzáadjuk a paprikát. 3. Felöntjük vízzel és főzzük 1.5 órát.',
+                'images': 'https://images.unsplash.com/photo-1547592180-85f173990554?w=400',
+                'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
+            },
+            {
+                'recipeid': 2,
+                'title': 'Rántott Schnitzel Burgonyával', 
+                'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
+                'instructions': '1. A húst kikalapáljuk és megsózzuk. 2. Lisztbe, majd tojásba, végül morzsába forgatjuk. 3. Forró olajban kisütjük.',
+                'images': 'https://images.unsplash.com/photo-1558030006-450675393462?w=400',
+                'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
+            },
+            {
+                'recipeid': 3,
+                'title': 'Vegetáriánus Lecsó',
+                'ingredients': 'paprika, paradicsom, hagyma, tojás, tofu, olívaolaj, só, bors, fokhagyma',
+                'instructions': '1. A hagymát megdinszteljük. 2. Hozzáadjuk a paprikát és paradicsomot. 3. Tofuval és tojással dúsítjuk.',
+                'images': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400',
+                'HSI': 85.0, 'ESI': 80.0, 'PPI': 70.0, 'composite_score': 78.0
+            },
+            {
+                'recipeid': 4,
+                'title': 'Halászlé Szegedi Módra',
+                'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
+                'instructions': '1. A halakat megtisztítjuk. 2. Erős alapot főzünk a fejekből. 3. A haldarabokat beletesszük és fűszerezzük.',
+                'images': 'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=400',
+                'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
+            },
+            {
+                'recipeid': 5,
+                'title': 'Túrós Csusza',
+                'ingredients': 'széles metélt, túró, tejföl, szalonna, hagyma, só, bors',
+                'instructions': '1. A tésztát megfőzzük. 2. A szalonnát kisütjük. 3. Összekeverjük a túróval és tejföllel.',
+                'images': 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=400',
+                'HSI': 65.0, 'ESI': 55.0, 'PPI': 80.0, 'composite_score': 65.0
+            }
+        ]
+        
+        df = pd.DataFrame(sample_recipes)
+        print(f"✅ Sample adatok létrehozva: {len(df)} recept")
+        return df
     
-    enhanced_recipes = [
-        {
-            'recipeid': 1, 'title': 'Hagyományos Gulyásleves',
-            'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
-            'instructions': '1. A húst kockákra vágjuk és enyhén megsózzuk. 2. Megdinszteljük a hagymát, hozzáadjuk a paprikát. 3. Felöntjük vízzel és főzzük 1.5 órát. 4. Hozzáadjuk a burgonyát és tovább főzzük.',
-            'images': '',  # Üres → placeholder
-            'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
-        },
-        {
-            'recipeid': 2, 'title': 'Vegetáriánus Lecsó',
-            'ingredients': 'paprika, paradicsom, hagyma, tojás, kolbász helyett tofu, olívaolaj, só, bors, fokhagyma',
-            'instructions': '1. A hagymát és fokhagymát megdinszteljük olívaolajban. 2. Hozzáadjuk a felszeletelt paprikát. 3. Paradicsomot és kockára vágott tofut adunk hozzá. 4. Tojással dúsítjük.',
-            'images': '',
-            'HSI': 85.0, 'ESI': 90.0, 'PPI': 70.0, 'composite_score': 83.0
-        },
-        {
-            'recipeid': 3, 'title': 'Rántott Schnitzel Burgonyával',
-            'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
-            'instructions': '1. A húst kikalapáljuk és megsózzuk. 2. Lisztbe, majd felvert tojásba, végül zsemlemorzsába forgatjuk. 3. Forró olajban mindkét oldalán kisütjük. 4. A burgonyát héjában megfőzzük.',
-            'images': '',
-            'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
-        },
-        {
-            'recipeid': 4, 'title': 'Halászlé Szegedi Módra',
-            'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
-            'instructions': '1. A halakat megtisztítjuk és feldaraboljuk. 2. A halak fejéből és farkából erős alapot főzünk. 3. Az alapot leszűrjük és beletesszük a haldarabokat. 4. Paprikával ízesítjük.',
-            'images': '',
-            'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
-        },
-        {
-            'recipeid': 5, 'title': 'Töltött Káposzta',
-            'ingredients': 'savanyú káposzta, darált hús, rizs, hagyma, paprika, kolbász, tejföl',
-            'instructions': '1. A káposztaleveleket leforrázuk. 2. Megtöltjük a húsos rizzsel. 3. Rétegesen főzzük.',
-            'images': '',
-            'HSI': 70.0, 'ESI': 55.0, 'PPI': 88.0, 'composite_score': 67.6
-        }
-    ]
-    
-    df = pd.DataFrame(enhanced_recipes)
-    
-    # CSV mentése
-    os.makedirs('data', exist_ok=True)
-    df.to_csv('data/processed_recipes.csv', index=False, encoding='utf-8')
-    
-    print(f"✅ Fallback recipes with placeholders: {len(enhanced_recipes)} recipes")
-    return df
-    
-    def get_recommendations(self, user_id, version):
-        """Ajánlások lekérése verzió alapján"""
-        if version == 'v1':
-            # V1: Random selection
-            sample_size = min(5, len(self.recipes_df))
-            recommendations = self.recipes_df.sample(n=sample_size, random_state=42).to_dict('records')
-        elif version == 'v2':
-            # V2: Composite score alapú
-            sorted_recipes = self.recipes_df.sort_values('composite_score', ascending=False)
-            recommendations = sorted_recipes.head(5).to_dict('records')
-        else:  # v3
-            # V3: Composite score + magyarázatok
-            sorted_recipes = self.recipes_df.sort_values('composite_score', ascending=False)
-            recommendations = sorted_recipes.head(5).to_dict('records')
-            # Magyarázatok hozzáadása
-            for rec in recommendations:
+    def get_recommendations(self, version='v1', n_recommendations=5):
+        """Ajánlások lekérése verzió szerint"""
+        if self.recipes_df is None or len(self.recipes_df) == 0:
+            print("❌ Nincs elérhető recept adat")
+            return []
+        
+        # Véletlenszerű kiválasztás (egyszerű implementáció)
+        sample_size = min(n_recommendations, len(self.recipes_df))
+        recommendations = self.recipes_df.sample(n=sample_size, random_state=42).to_dict('records')
+        
+        # Magyarázatok hozzáadása verzió szerint
+        for rec in recommendations:
+            if version == 'v2' or version == 'v3':
                 rec['explanation'] = self.generate_explanation(rec, version)
         
+        print(f"✅ {len(recommendations)} ajánlás generálva verzióhoz: {version}")
         return recommendations
     
     def generate_explanation(self, recipe, version):
-        """Magyarázat generálása recepthez"""
-        if version == 'v2':
-            # Rövid magyarázat
-            if recipe['composite_score'] > 75:
-                return "Ez a recept kiváló összetevőkkel rendelkezik és kiegyensúlyozott."
-            elif recipe['composite_score'] > 65:
-                return "Jó választás, egészséges és környezetbarát összetevőkkel."
-            else:
-                return "Hagyományos recept, népszerű és kipróbált."
+        """Magyarázat generálása"""
+        explanations = []
         
-        elif version == 'v3':
-            # Részletes magyarázat
-            explanations = []
-            
-            if recipe['HSI'] > 70:
-                explanations.append("🍎 <strong>Egészséges:</strong> Magas tápértékű összetevők, kiegyensúlyozott makrotápanyagok")
-            
-            if recipe['ESI'] > 70:
-                explanations.append("🌱 <strong>Környezetbarát:</strong> Alacsony szén-lábnyom, helyi alapanyagok előnyben részesítése")
-            
-            if recipe['PPI'] > 80:
-                explanations.append("⭐ <strong>Népszerű:</strong> Sokan kedvelik és gyakran elkészítik")
-            
-            if recipe['composite_score'] > 75:
-                explanations.append("🎯 <strong>Kiváló választás:</strong> A három szempont alapján optimális recept")
-            
-            if not explanations:
-                explanations.append("📊 Kiegyensúlyozott recept minden szempontból")
-            
-            return "<br>".join(explanations)
+        if recipe['HSI'] > 70:
+            explanations.append("🏥 Magas tápérték és egészséges összetevők")
+        if recipe['ESI'] > 70:
+            explanations.append("🌱 Környezetbarát ingrediensek")
+        if recipe['PPI'] > 80:
+            explanations.append("⭐ Népszerű és kipróbált recept")
         
-        return ""
+        if not explanations:
+            explanations.append("🍽️ Kiegyensúlyozott összetétel")
+        
+        if version == 'v3':
+            # Részletesebb magyarázat v3-hoz
+            detailed = f"Ez a recept {recipe['composite_score']:.0f}/100 pontot ért el összesített értékelésünkben. "
+            detailed += " ".join(explanations)
+            return detailed
+        else:
+            # Rövid magyarázat v2-höz
+            return " • ".join(explanations)
 
-# Global objektumok inicializálása
-db = DatabaseManager()
+# Global objektumok
+db = UserStudyDatabase()
 recommender = EnhancedRecipeRecommender()
 
 def get_user_version():
-    """Felhasználó verziójának meghatározása"""
+    """Verzió kiosztása"""
     if 'version' not in session:
         versions = ['v1', 'v2', 'v3']
         session['version'] = random.choice(versions)
     return session['version']
 
-# TELJES ROUTE LISTA - MINDEN HIÁNYZÓ ROUTE PÓTLÁSA
+# ROUTES - Template path javítva!
 
 @user_study_bp.route('/')
 def welcome():
     """Üdvözlő oldal"""
-    return render_template('user_study/welcome.html')
+    return render_template('welcome.html')
 
 @user_study_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """Felhasználó regisztráció"""
+    """Regisztráció"""
     if request.method == 'POST':
         try:
             age_group = request.form.get('age_group')
@@ -325,78 +292,53 @@ def register():
             cooking_frequency = request.form.get('cooking_frequency')
             sustainability_awareness = int(request.form.get('sustainability_awareness', 3))
             
-            # Consent mezők
-            consent_participation = bool(request.form.get('consent_participation'))
-            consent_data = bool(request.form.get('consent_data'))
-            consent_publication = bool(request.form.get('consent_publication'))
-            consent_contact = bool(request.form.get('consent_contact'))
-            
-            # Validáció
-            if not all([age_group, education, cooking_frequency]):
-                return render_template('user_study/register.html', 
-                                     error='Kérjük töltse ki az összes kötelező mezőt.')
-            
-            if not all([consent_participation, consent_data, consent_publication]):
-                return render_template('user_study/register.html', 
-                                     error='A kötelező beleegyezések szükségesek a folytatáshoz.')
-            
-            # Verzió hozzárendelése
             version = get_user_version()
             
-            # Felhasználó mentése adatbázisba
-            conn = db.get_connection()
-            cursor = conn.execute('''
-                INSERT INTO participants 
-                (age_group, education, cooking_frequency, sustainability_awareness,
-                 consent_participation, consent_data, consent_publication, consent_contact, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (age_group, education, cooking_frequency, sustainability_awareness,
-                  consent_participation, consent_data, consent_publication, consent_contact, version))
+            user_id = db.create_user(age_group, education, cooking_frequency, 
+                                   sustainability_awareness, version)
             
-            user_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
-            
-            # Session beállítása
             session['user_id'] = user_id
             session['version'] = version
-            session['registration_time'] = datetime.datetime.now().isoformat()
-            
-            print(f"✅ User registered successfully: ID={user_id}, Version={version}")
             
             return redirect(url_for('user_study.instructions'))
             
         except Exception as e:
             print(f"Registration error: {e}")
-            return render_template('user_study/register.html', 
-                                 error='Regisztráció sikertelen. Kérjük próbálja újra.')
+            return render_template('register.html', error='Regisztráció sikertelen')
     
-    return render_template('user_study/register.html')
+    return render_template('register.html')
 
 @user_study_bp.route('/instructions')
 def instructions():
-    """Instrukciók oldal"""
+    """Instrukciók"""
     if 'user_id' not in session:
         return redirect(url_for('user_study.register'))
     
-    return render_template('user_study/instructions_hidden.html')
+    version = session.get('version', 'v1')
+    return render_template('instructions.html', version=version)
 
 @user_study_bp.route('/study')
 def study():
-    """Fő tanulmány oldal"""
+    """Fő tanulmány oldal - KÉPEKKEL"""
     if 'user_id' not in session:
         return redirect(url_for('user_study.register'))
     
-    user_id = session['user_id']
-    version = get_user_version()
+    version = session.get('version', 'v1')
     
     # Ajánlások lekérése
-    recommendations = recommender.get_recommendations(user_id, version)
+    recommendations = recommender.get_recommendations(version=version, n_recommendations=5)
     
-    print(f"✅ Study loaded for user {user_id}, version {version}, {len(recommendations)} recommendations")
+    if not recommendations:
+        return "Hiba: Nem sikerült betölteni a recepteket", 500
     
-    return render_template('user_study/study_enhanced.html', 
-                         recommendations=recommendations)
+    # Debug: képek ellenőrzése
+    print(f"🔍 Template-nek átadott ajánlások:")
+    for i, rec in enumerate(recommendations):
+        print(f"   {i+1}. {rec['title']} - Kép: {rec.get('images', 'NINCS')}")
+    
+    return render_template('study.html', 
+                         recommendations=recommendations, 
+                         version=version)
 
 @user_study_bp.route('/rate_recipe', methods=['POST'])
 def rate_recipe():
@@ -404,27 +346,18 @@ def rate_recipe():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    try:
-        user_id = session['user_id']
-        recipe_id = int(request.json.get('recipe_id'))
-        rating = int(request.json.get('rating'))
-        explanation_helpful = request.json.get('explanation_helpful')
-        view_time = request.json.get('view_time_seconds', 0)
-        interaction_order = request.json.get('interaction_order', 0)
-        
-        # Értékelés mentése
-        db.log_interaction(user_id, recipe_id, rating=rating,
-                          explanation_helpful=explanation_helpful,
-                          view_time=view_time,
-                          interaction_order=interaction_order)
-        
-        print(f"✅ Recipe rated: User={user_id}, Recipe={recipe_id}, Rating={rating}")
-        
-        return jsonify({'status': 'success'})
-        
-    except Exception as e:
-        print(f"Rating error: {e}")
-        return jsonify({'error': str(e)}), 500
+    user_id = session['user_id']
+    data = request.get_json()
+    
+    recipe_id = int(data.get('recipe_id'))
+    rating = int(data.get('rating'))
+    explanation_helpful = data.get('explanation_helpful')
+    view_time = data.get('view_time_seconds', 0)
+    interaction_order = data.get('interaction_order', 0)
+    
+    db.log_interaction(user_id, recipe_id, rating, explanation_helpful, view_time, interaction_order)
+    
+    return jsonify({'status': 'success'})
 
 @user_study_bp.route('/questionnaire', methods=['GET', 'POST'])
 def questionnaire():
@@ -432,85 +365,57 @@ def questionnaire():
     if 'user_id' not in session:
         return redirect(url_for('user_study.register'))
     
-    version = get_user_version()
-    
     if request.method == 'POST':
-        try:
-            user_id = session['user_id']
-            
-            # Válaszok gyűjtése
-            system_usability = int(request.form.get('system_usability'))
-            recommendation_quality = int(request.form.get('recommendation_quality'))
-            trust_level = int(request.form.get('trust_level'))
-            explanation_clarity = request.form.get('explanation_clarity')
-            sustainability_importance = int(request.form.get('sustainability_importance'))
-            overall_satisfaction = int(request.form.get('overall_satisfaction'))
-            additional_comments = request.form.get('additional_comments', '')
-            
-            # explanation_clarity kezelése (v1-nél nincs)
-            explanation_clarity_int = int(explanation_clarity) if explanation_clarity else None
-            
-            # Válaszok mentése
-            conn = db.get_connection()
-            conn.execute('''
-                INSERT INTO questionnaire 
-                (user_id, system_usability, recommendation_quality, trust_level, 
-                 explanation_clarity, sustainability_importance, overall_satisfaction, additional_comments)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, system_usability, recommendation_quality, trust_level,
-                  explanation_clarity_int, sustainability_importance, overall_satisfaction, additional_comments))
-            
-            # Befejezés jelölése
-            conn.execute('''
-                UPDATE participants SET is_completed = 1 WHERE user_id = ?
-            ''', (user_id,))
-            
-            conn.commit()
-            conn.close()
-            
-            print(f"✅ Questionnaire completed for user {user_id}")
-            
-            return redirect(url_for('user_study.thank_you'))
-            
-        except Exception as e:
-            print(f"Questionnaire error: {e}")
-            return render_template('user_study/questionnaire.html', 
-                                 version=version,
-                                 error='Kérdőív mentése sikertelen. Kérjük próbálja újra.')
+        user_id = session['user_id']
+        
+        responses = {
+            'system_usability': request.form.get('system_usability'),
+            'recommendation_quality': request.form.get('recommendation_quality'),
+            'trust_level': request.form.get('trust_level'),
+            'explanation_clarity': request.form.get('explanation_clarity'),
+            'sustainability_importance': request.form.get('sustainability_importance'),
+            'overall_satisfaction': request.form.get('overall_satisfaction'),
+            'additional_comments': request.form.get('additional_comments', '')
+        }
+        
+        db.save_questionnaire(user_id, responses)
+        
+        return redirect(url_for('user_study.thank_you'))
     
-    return render_template('user_study/questionnaire.html', version=version)
+    version = session.get('version', 'v1')
+    return render_template('questionnaire.html', version=version)
 
 @user_study_bp.route('/thank_you')
 def thank_you():
     """Köszönet oldal"""
-    version = get_user_version()
-    return render_template('user_study/thank_you.html', version=version)
+    version = session.get('version', 'v1')
+    return render_template('thank_you.html', version=version)
 
 @user_study_bp.route('/admin/stats')
 def admin_stats():
-    """Valós idejű admin statisztikák"""
+    """Admin statisztikák"""
     try:
         conn = db.get_connection()
         
         # Alapstatisztikák
         stats = {}
         
-        # Összes résztvevő
-        total_participants = conn.execute('SELECT COUNT(*) as count FROM participants').fetchone()['count']
-        stats['total_participants'] = total_participants
+        # Résztvevők száma
+        result = conn.execute('SELECT COUNT(*) as count FROM participants').fetchone()
+        stats['total_participants'] = result['count'] if result else 0
         
-        # Befejezett résztvevők
-        completed_participants = conn.execute(
-            'SELECT COUNT(*) as count FROM participants WHERE is_completed = 1'
-        ).fetchone()['count']
-        stats['completed_participants'] = completed_participants
+        # Befejezett tanulmányok
+        result = conn.execute('SELECT COUNT(*) as count FROM participants WHERE is_completed = 1').fetchone()
+        stats['completed_participants'] = result['count'] if result else 0
         
         # Befejezési arány
-        stats['completion_rate'] = completed_participants / total_participants if total_participants > 0 else 0
+        if stats['total_participants'] > 0:
+            stats['completion_rate'] = stats['completed_participants'] / stats['total_participants']
+        else:
+            stats['completion_rate'] = 0
         
         # Verzió eloszlás
-        version_distribution = []
-        version_data = conn.execute('''
+        version_results = conn.execute('''
             SELECT version, 
                    COUNT(*) as count,
                    SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed
@@ -518,67 +423,44 @@ def admin_stats():
             GROUP BY version
         ''').fetchall()
         
-        for row in version_data:
-            version_distribution.append({
-                'version': row['version'],
-                'count': row['count'],
-                'completed': row['completed']
-            })
-        
-        stats['version_distribution'] = version_distribution
+        stats['version_distribution'] = [dict(row) for row in version_results]
         
         # Átlagos értékelések
-        rating_data = conn.execute('''
-            SELECT p.version, AVG(i.rating) as avg_rating, COUNT(*) as count
-            FROM interactions i
-            JOIN participants p ON i.user_id = p.user_id
+        rating_results = conn.execute('''
+            SELECT p.version, AVG(i.rating) as avg_rating, COUNT(i.rating) as count
+            FROM participants p
+            JOIN interactions i ON p.user_id = i.user_id
             WHERE i.rating IS NOT NULL
             GROUP BY p.version
         ''').fetchall()
         
-        average_ratings = []
-        for row in rating_data:
-            average_ratings.append({
-                'version': row['version'],
-                'avg_rating': row['avg_rating'],
-                'count': row['count']
-            })
-        
-        stats['average_ratings'] = average_ratings
+        stats['average_ratings'] = [dict(row) for row in rating_results]
         
         # Kérdőív eredmények
-        questionnaire_data = conn.execute('''
+        questionnaire_results = conn.execute('''
             SELECT p.version,
                    AVG(q.system_usability) as avg_usability,
                    AVG(q.recommendation_quality) as avg_quality,
                    AVG(q.trust_level) as avg_trust,
                    AVG(q.explanation_clarity) as avg_clarity,
                    AVG(q.overall_satisfaction) as avg_satisfaction
-            FROM questionnaire q
-            JOIN participants p ON q.user_id = p.user_id
+            FROM participants p
+            JOIN questionnaire q ON p.user_id = q.user_id
             GROUP BY p.version
         ''').fetchall()
         
-        questionnaire_results = []
-        for row in questionnaire_data:
-            questionnaire_results.append({
-                'version': row['version'],
-                'avg_usability': row['avg_usability'],
-                'avg_quality': row['avg_quality'],
-                'avg_trust': row['avg_trust'],
-                'avg_clarity': row['avg_clarity'],
-                'avg_satisfaction': row['avg_satisfaction']
-            })
+        stats['questionnaire_results'] = [dict(row) for row in questionnaire_results]
         
-        stats['questionnaire_results'] = questionnaire_results
-        
-        # Átlagos interakciók/felhasználó
-        total_interactions = conn.execute('SELECT COUNT(*) as count FROM interactions').fetchone()['count']
-        stats['avg_interactions_per_user'] = total_interactions / total_participants if total_participants > 0 else 0
+        # Átlagos interakciók
+        interactions_count = conn.execute('SELECT COUNT(*) as count FROM interactions').fetchone()
+        if stats['total_participants'] > 0:
+            stats['avg_interactions_per_user'] = interactions_count['count'] / stats['total_participants']
+        else:
+            stats['avg_interactions_per_user'] = 0
         
         conn.close()
         
-        return render_template('user_study/admin_stats.html', stats=stats)
+        return render_template('admin_stats.html', stats=stats)
         
     except Exception as e:
         return f"Stats error: {e}", 500
