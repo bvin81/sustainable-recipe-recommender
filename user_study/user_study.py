@@ -212,7 +212,7 @@ class UserStudyDatabase:
             print(f"Performance update error: {e}")
 
 class EnhancedRecipeRecommender:
-    """Továbbfejlesztett rețetá ajánló rendszer valós magyar receptekkel"""
+    """Továbbfejlesztett recept ajánló rendszer valós magyar receptekkel"""
     
     def __init__(self):
         self.recipes_df = self.load_hungarian_recipes()
@@ -537,7 +537,7 @@ def study():
 
 @app.route('/rate_recipe', methods=['POST'])
 def rate_recipe():
-    """Rețetá értékelése teljesítmény tracking-gel"""
+    """Recept értékelése teljesítmény tracking-gel"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
