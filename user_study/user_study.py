@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Sustainable Recipe Recommender - User Study System
-Felhasználói tanulmány három különböző ajánló rendszer verzióval
+Továbbfejlesztett Sustainable Recipe Recommender - User Study System
+Valós magyar receptekkel, elrejtett verzió információval és teljesítmény metrikákkal
 """
 
 import os
@@ -18,6 +18,7 @@ import random
 import pandas as pd
 import numpy as np
 from flask import Flask, request, render_template, redirect, url_for, session, jsonify, flash
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
 # Project path setup
 project_root = Path(__file__).parent.parent
@@ -38,7 +39,7 @@ class UserStudyDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Participants tábla
+        # Participants tábla - VERZIÓ ELREJTÉSE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS participants (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,11 +51,12 @@ class UserStudyDatabase:
                 sustainability_awareness INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 completed_at TIMESTAMP NULL,
-                is_completed BOOLEAN DEFAULT FALSE
+                is_completed BOOLEAN DEFAULT FALSE,
+                session_data TEXT  -- JSON a teljes session adatokhoz
             )
         ''')
         
-        # Interactions tábla
+        # Interactions tábla - bővített információkkal
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS interactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,9 +65,28 @@ class UserStudyDatabase:
                 recipe_id INTEGER,
                 rating INTEGER,
                 explanation_helpful INTEGER,
+                view_time_seconds REAL,  -- Mennyi ideig nézte
+                interaction_order INTEGER,  -- Hanyadik recept
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 data TEXT,
                 FOREIGN KEY (user_id) REFERENCES participants (user_id)
+            )
+        ''')
+        
+        # Recipe performance tracking
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS recipe_performance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipe_id INTEGER NOT NULL,
+                version TEXT NOT NULL,
+                total_views INTEGER DEFAULT 0,
+                total_ratings INTEGER DEFAULT 0,
+                avg_rating REAL DEFAULT 0,
+                total_positive_ratings INTEGER DEFAULT 0,  -- 4-5 csillag
+                precision_score REAL DEFAULT 0,
+                recall_score REAL DEFAULT 0,
+                f1_score REAL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -80,6 +101,8 @@ class UserStudyDatabase:
                 explanation_clarity INTEGER,
                 sustainability_importance INTEGER,
                 overall_satisfaction INTEGER,
+                perceived_personalization INTEGER,  -- Mennyire érezte személyre szabottnak
+                would_use_again INTEGER,  -- Használná-e újra
                 additional_comments TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES participants (user_id)
@@ -90,21 +113,30 @@ class UserStudyDatabase:
         conn.close()
     
     def add_participant(self, user_id: str, version: str, demographics: Dict) -> bool:
-        """Új résztvevő hozzáadása"""
+        """Új résztvevő hozzáadása - VERZIÓ ELREJTÉSE"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            # Session adatok tárolása
+            session_data = {
+                'demographics': demographics,
+                'start_time': datetime.datetime.now().isoformat(),
+                'version_hidden': True  # Jelezzük hogy a verzió el van rejtve
+            }
+            
             cursor.execute('''
                 INSERT INTO participants 
-                (user_id, version, age_group, education, cooking_frequency, sustainability_awareness)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, version, age_group, education, cooking_frequency, 
+                 sustainability_awareness, session_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_id, version,
                 demographics.get('age_group'),
                 demographics.get('education'),
                 demographics.get('cooking_frequency'),
-                demographics.get('sustainability_awareness')
+                demographics.get('sustainability_awareness'),
+                json.dumps(session_data)
             ))
             
             conn.commit()
@@ -115,20 +147,23 @@ class UserStudyDatabase:
             return False
     
     def log_interaction(self, user_id: str, action_type: str, **kwargs):
-        """Felhasználói interakció naplózása"""
+        """Felhasználói interakció naplózása bővített adatokkal"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             cursor.execute('''
                 INSERT INTO interactions 
-                (user_id, action_type, recipe_id, rating, explanation_helpful, data)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, action_type, recipe_id, rating, explanation_helpful, 
+                 view_time_seconds, interaction_order, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_id, action_type,
                 kwargs.get('recipe_id'),
                 kwargs.get('rating'),
                 kwargs.get('explanation_helpful'),
+                kwargs.get('view_time_seconds'),
+                kwargs.get('interaction_order'),
                 json.dumps(kwargs.get('data', {}))
             ))
             
@@ -137,145 +172,288 @@ class UserStudyDatabase:
         except Exception as e:
             print(f"Interaction logging error: {e}")
     
-    def complete_participant(self, user_id: str):
-        """Résztvevő befejezettként jelölése"""
+    def update_recipe_performance(self, recipe_id: int, version: str, rating: int):
+        """Recept teljesítmény metrikák frissítése"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            # Létező performance rekord keresése
             cursor.execute('''
-                UPDATE participants 
-                SET completed_at = CURRENT_TIMESTAMP, is_completed = TRUE
-                WHERE user_id = ?
-            ''', (user_id,))
+                SELECT * FROM recipe_performance 
+                WHERE recipe_id = ? AND version = ?
+            ''', (recipe_id, version))
+            
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Frissítés
+                new_total_ratings = existing[3] + 1
+                new_avg_rating = ((existing[4] * existing[3]) + rating) / new_total_ratings
+                new_positive = existing[5] + (1 if rating >= 4 else 0)
+                
+                cursor.execute('''
+                    UPDATE recipe_performance 
+                    SET total_ratings = ?, avg_rating = ?, total_positive_ratings = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE recipe_id = ? AND version = ?
+                ''', (new_total_ratings, new_avg_rating, new_positive, recipe_id, version))
+            else:
+                # Új rekord
+                cursor.execute('''
+                    INSERT INTO recipe_performance 
+                    (recipe_id, version, total_views, total_ratings, avg_rating, total_positive_ratings)
+                    VALUES (?, ?, 1, 1, ?, ?)
+                ''', (recipe_id, version, rating, 1 if rating >= 4 else 0))
             
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Completion error: {e}")
+            print(f"Performance update error: {e}")
 
-class RecipeRecommender:
-    """Recept ajánló rendszer három verzióval"""
+class EnhancedRecipeRecommender:
+    """Továbbfejlesztett rețetá ajánló rendszer valós magyar receptekkel"""
     
     def __init__(self):
-        self.recipes_df = self.load_recipes()
+        self.recipes_df = self.load_hungarian_recipes()
+        self.performance_tracker = {}
     
-    def load_recipes(self) -> pd.DataFrame:
-        """Recept adatok betöltése"""
+    def load_hungarian_recipes(self) -> pd.DataFrame:
+        """Magyar receptek betöltése"""
         try:
             csv_path = project_root / "data" / "processed_recipes.csv"
             if csv_path.exists():
-                return pd.read_csv(csv_path)
+                df = pd.read_csv(csv_path)
+                print(f"✅ Betöltve {len(df)} magyar recept")
+                return df
             else:
-                # Fallback sample data
-                return self.create_sample_recipes()
+                print("⚠️ processed_recipes.csv nem található, sample adatok használata")
+                return self.create_hungarian_sample()
         except Exception as e:
-            print(f"Recipe loading error: {e}")
-            return self.create_sample_recipes()
+            print(f"Recept betöltési hiba: {e}")
+            return self.create_hungarian_sample()
     
-    def create_sample_recipes(self) -> pd.DataFrame:
-        """Sample recept adatok létrehozása"""
-        recipes = []
-        
-        sample_recipes = [
-            ("Mediterranean Quinoa Bowl", "quinoa, tomatoes, olives, feta, olive oil", 0.85, 0.70, 0.75),
-            ("Grilled Salmon with Vegetables", "salmon, broccoli, carrots, lemon, herbs", 0.90, 0.60, 0.80),
-            ("Vegetarian Lentil Curry", "lentils, coconut milk, spices, vegetables", 0.80, 0.85, 0.70),
-            ("Chicken Avocado Salad", "chicken breast, avocado, mixed greens, nuts", 0.75, 0.65, 0.85),
-            ("Roasted Vegetable Pasta", "whole grain pasta, seasonal vegetables, herbs", 0.70, 0.80, 0.75),
-            ("Black Bean Tacos", "black beans, corn tortillas, salsa, avocado", 0.80, 0.75, 0.80),
-            ("Asian Tofu Stir-fry", "tofu, mixed vegetables, soy sauce, ginger", 0.85, 0.80, 0.70),
-            ("Greek Yogurt Parfait", "greek yogurt, berries, granola, honey", 0.75, 0.70, 0.85),
-            ("Stuffed Bell Peppers", "bell peppers, quinoa, vegetables, cheese", 0.80, 0.75, 0.75),
-            ("Sweet Potato Buddha Bowl", "sweet potato, chickpeas, greens, tahini", 0.85, 0.80, 0.70)
+    def create_hungarian_sample(self) -> pd.DataFrame:
+        """Magyar minta receptek létrehozása"""
+        hungarian_recipes = [
+            {
+                'recipeid': 1,
+                'title': 'Hagyományos Gulyásleves',
+                'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
+                'instructions': '1. A húst kockákra vágjuk 2. Megdinszteljük a hagymát 3. Hozzáadjuk a paprikát 4. Felöntjük vízzel és főzzük 1.5 órát',
+                'images': '/static/images/gulyas.jpg',
+                'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
+            },
+            {
+                'recipeid': 2,
+                'title': 'Rántott Schnitzel Burgonyával',
+                'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
+                'instructions': '1. A húst kikalapáljuk 2. Lisztbe, tojásba, morzsába forgatjuk 3. Forró olajban kisütjük',
+                'images': '/static/images/schnitzel.jpg',
+                'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
+            },
+            {
+                'recipeid': 3,
+                'title': 'Vegetáriánus Lecsó',
+                'ingredients': 'paprika, paradicsom, hagyma, tojás, kolbász helyett tofu, olívaolaj, só, bors',
+                'instructions': '1. A hagymát megdinszteljük 2. Hozzáadjuk a paprikát 3. Paradicsomot és tofut adunk hozzá',
+                'images': '/static/images/lecso.jpg',
+                'HSI': 85.0, 'ESI': 80.0, 'PPI': 70.0, 'composite_score': 79.0
+            },
+            {
+                'recipeid': 4,
+                'title': 'Halászlé Szegedi Módra',
+                'ingredients': 'ponty, csuka, harcsa, hagyma, paprika, paradicsom, só, borsjuk',
+                'instructions': '1. A halakat megtisztítjuk 2. Erős halászlé alapot főzünk 3. Beletesszük a halakat',
+                'images': '/static/images/halaszle.jpg',
+                'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 75.0
+            },
+            {
+                'recipeid': 5,
+                'title': 'Túrós Csusza',
+                'ingredients': 'széles metélt, túró, tejföl, szalonna, hagyma, só, bors',
+                'instructions': '1. A tésztát megfőzzük 2. A szalonnát kisütjük 3. Összekeverjük a túróval és tejföllel',
+                'images': '/static/images/turos_csusza.jpg',
+                'HSI': 65.0, 'ESI': 55.0, 'PPI': 80.0, 'composite_score': 64.0
+            }
         ]
         
-        for i, (title, ingredients, hsi, esi, ppi) in enumerate(sample_recipes):
-            recipes.append({
-                'recipeid': i + 1,
-                'title': title,
-                'ingredients': ingredients,
-                'HSI': hsi,
-                'ESI': esi, 
-                'PPI': ppi
-            })
-        
-        return pd.DataFrame(recipes)
+        return pd.DataFrame(hungarian_recipes)
     
-    def get_recommendations_v1(self, user_preferences: Dict) -> List[Dict]:
-        """V1: Baseline - egyszerű hasonlóság alapú"""
-        # Véletlenszerű + népszerűség alapú válogatás
+    def get_recommendations_v1(self, user_preferences: Dict, user_id: str) -> List[Dict]:
+        """V1: Baseline - népszerűség alapú (PPI score)"""
+        # Top receptek PPI szerint
         sample_size = min(5, len(self.recipes_df))
         recommendations = self.recipes_df.nlargest(sample_size, 'PPI').to_dict('records')
         
-        for rec in recommendations:
-            rec['explanation'] = f"Népszerű recept ({rec['PPI']:.1f}/1.0 pontszám)"
+        for i, rec in enumerate(recommendations):
+            rec['explanation'] = f"Népszerű választás ({rec['PPI']:.0f}/100 pont)"
             rec['version'] = 'v1'
+            rec['rank'] = i + 1
+            
+            # Teljesítmény tracking
+            self.track_recommendation(user_id, 'v1', rec['recipeid'])
         
         return recommendations
     
-    def get_recommendations_v2(self, user_preferences: Dict) -> List[Dict]:
-        """V2: Hybrid - egészség és környezeti tényezőkkel"""
-        # Normalizált composite score
-        health_weight = 0.4
-        env_weight = 0.4
-        pop_weight = 0.2
-        
-        self.recipes_df['composite_score'] = (
-            health_weight * self.recipes_df['HSI'] +
-            env_weight * self.recipes_df['ESI'] + 
-            pop_weight * self.recipes_df['PPI']
-        )
-        
+    def get_recommendations_v2(self, user_preferences: Dict, user_id: str) -> List[Dict]:
+        """V2: Hybrid - kompozit score alapú"""
+        # Top receptek kompozit score szerint
         sample_size = min(5, len(self.recipes_df))
         recommendations = self.recipes_df.nlargest(sample_size, 'composite_score').to_dict('records')
         
-        for rec in recommendations:
-            rec['explanation'] = f"Kiegyensúlyozott választás (Egészség: {rec['HSI']:.1f}, Környezet: {rec['ESI']:.1f})"
+        for i, rec in enumerate(recommendations):
+            rec['explanation'] = f"Kiegyensúlyozott választás (Összpontszám: {rec['composite_score']:.0f}/100)"
             rec['version'] = 'v2'
+            rec['rank'] = i + 1
+            
+            # Teljesítmény tracking
+            self.track_recommendation(user_id, 'v2', rec['recipeid'])
         
         return recommendations
     
-    def get_recommendations_v3(self, user_preferences: Dict) -> List[Dict]:
+    def get_recommendations_v3(self, user_preferences: Dict, user_id: str) -> List[Dict]:
         """V3: Hybrid XAI - részletes magyarázatokkal"""
-        # Ugyanaz mint V2, de gazdagabb magyarázatokkal
-        health_weight = 0.4
-        env_weight = 0.4
-        pop_weight = 0.2
-        
-        self.recipes_df['composite_score'] = (
-            health_weight * self.recipes_df['HSI'] +
-            env_weight * self.recipes_df['ESI'] + 
-            pop_weight * self.recipes_df['PPI']
-        )
-        
+        # Ugyanaz mint V2, de részletes magyarázatokkal
         sample_size = min(5, len(self.recipes_df))
         recommendations = self.recipes_df.nlargest(sample_size, 'composite_score').to_dict('records')
         
-        for rec in recommendations:
+        for i, rec in enumerate(recommendations):
             # Részletes magyarázat generálása
-            health_desc = "kiváló" if rec['HSI'] > 0.8 else "jó" if rec['HSI'] > 0.6 else "megfelelő"
-            env_desc = "környezetbarát" if rec['ESI'] > 0.7 else "mérsékelt hatású" if rec['ESI'] > 0.5 else "átlagos"
+            health_desc = self.get_health_description(rec['HSI'])
+            env_desc = self.get_environmental_description(rec['ESI'])
+            pop_desc = self.get_popularity_description(rec['PPI'])
             
             rec['explanation'] = f"""
-            <strong>Miért ajánljuk:</strong><br>
-            🏥 <strong>Egészség:</strong> {health_desc} táplálkozási érték ({rec['HSI']:.1f}/1.0)<br>
-            🌱 <strong>Környezet:</strong> {env_desc} környezeti hatás ({rec['ESI']:.1f}/1.0)<br>
-            ⭐ <strong>Népszerűség:</strong> {rec['PPI']:.1f}/1.0 értékelés<br>
-            <em>Összpontszám: {rec['composite_score']:.2f}/1.0</em>
+            <div class="explanation-detailed">
+                <strong>🎯 Miért ajánljuk ezt a receptet:</strong><br><br>
+                
+                <div class="explanation-item">
+                    <span class="explanation-icon">🏥</span>
+                    <strong>Egészség ({rec['HSI']:.0f}/100):</strong> {health_desc}
+                </div>
+                
+                <div class="explanation-item">
+                    <span class="explanation-icon">🌱</span>
+                    <strong>Környezet ({rec['ESI']:.0f}/100):</strong> {env_desc}
+                </div>
+                
+                <div class="explanation-item">
+                    <span class="explanation-icon">⭐</span>
+                    <strong>Népszerűség ({rec['PPI']:.0f}/100):</strong> {pop_desc}
+                </div>
+                
+                <div class="explanation-summary">
+                    <strong>📊 Összesített pontszám:</strong> {rec['composite_score']:.0f}/100
+                </div>
+            </div>
             """
             rec['version'] = 'v3'
+            rec['rank'] = i + 1
+            
+            # Teljesítmény tracking
+            self.track_recommendation(user_id, 'v3', rec['recipeid'])
         
         return recommendations
+    
+    def get_health_description(self, score: float) -> str:
+        """Egészség pontszám leírása"""
+        if score >= 80:
+            return "Kiváló táplálkozási érték, gazdag vitaminokban és ásványi anyagokban"
+        elif score >= 65:
+            return "Jó táplálkozási érték, egészséges választás"
+        elif score >= 50:
+            return "Közepes táplálkozási érték, mérsékelten fogyasztva ajánlott"
+        else:
+            return "Alacsonyabb táplálkozási érték, alkalmi fogyasztásra"
+    
+    def get_environmental_description(self, score: float) -> str:
+        """Környezeti pontszám leírása"""
+        if score >= 75:
+            return "Környezetbarát, alacsony ökológiai lábnyom"
+        elif score >= 60:
+            return "Mérsékelten környezetbarát, fenntartható választás"
+        elif score >= 45:
+            return "Közepes környezeti hatás"
+        else:
+            return "Magasabb környezeti terhelés"
+    
+    def get_popularity_description(self, score: float) -> str:
+        """Népszerűség pontszám leírása"""
+        if score >= 85:
+            return "Rendkívül népszerű, sokan kedvelik"
+        elif score >= 70:
+            return "Népszerű választás"
+        elif score >= 55:
+            return "Közepesen kedvelt"
+        else:
+            return "Specifikus ízlésvilágnak szól"
+    
+    def track_recommendation(self, user_id: str, version: str, recipe_id: int):
+        """Ajánlás tracking teljesítmény méréshez"""
+        if user_id not in self.performance_tracker:
+            self.performance_tracker[user_id] = {
+                'version': version,
+                'recommended_recipes': [],
+                'start_time': datetime.datetime.now()
+            }
+        
+        self.performance_tracker[user_id]['recommended_recipes'].append({
+            'recipe_id': recipe_id,
+            'recommended_at': datetime.datetime.now()
+        })
+    
+    def calculate_precision_recall(self, user_id: str, positive_ratings: List[int]) -> Dict:
+        """Precision, Recall, F1 score számítása"""
+        if user_id not in self.performance_tracker:
+            return {'precision': 0, 'recall': 0, 'f1': 0}
+        
+        # Ajánlott receptek
+        recommended_recipes = [r['recipe_id'] for r in self.performance_tracker[user_id]['recommended_recipes']]
+        
+        # Pozitív értékelések (4-5 csillag)
+        positive_recipe_ids = [recommended_recipes[i] for i, rating in enumerate(positive_ratings) if rating >= 4]
+        
+        if len(recommended_recipes) == 0:
+            return {'precision': 0, 'recall': 0, 'f1': 0}
+        
+        # True Positives: ajánlott ÉS pozitívan értékelt
+        tp = len(positive_recipe_ids)
+        
+        # False Positives: ajánlott DE negatívan értékelt
+        fp = len(recommended_recipes) - tp
+        
+        # Precision: TP / (TP + FP)
+        precision = tp / len(recommended_recipes) if len(recommended_recipes) > 0 else 0
+        
+        # Recall: nehezebb meghatározni, mert nem tudjuk az összes "releváns" receptet
+        # Közelítjük: TP / (TP + véletlenszerű minta a nem ajánlott receptekből)
+        total_available_recipes = len(self.recipes_df)
+        estimated_relevant_recipes = total_available_recipes * 0.2  # Becsüljük hogy 20% releváns
+        
+        recall = tp / estimated_relevant_recipes if estimated_relevant_recipes > 0 else 0
+        
+        # F1 Score
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
+        return {
+            'precision': round(precision, 3),
+            'recall': round(recall, 3),
+            'f1': round(f1, 3),
+            'true_positives': tp,
+            'false_positives': fp,
+            'recommended_count': len(recommended_recipes)
+        }
 
 # Global objektumok
 db = UserStudyDatabase()
-recommender = RecipeRecommender()
+recommender = EnhancedRecipeRecommender()
 
 def get_user_version() -> str:
-    """Véletlenszerű verzió kiosztás A/B/C teszthez"""
+    """Véletlenszerű verzió kiosztás A/B/C teszthez - ELREJTVE"""
     if 'version' not in session:
         session['version'] = random.choice(['v1', 'v2', 'v3'])
+        # FONTOS: A verzió információt SOHA nem mutatjuk a felhasználónak
     return session['version']
 
 def generate_user_id() -> str:
@@ -289,16 +467,15 @@ def generate_user_id() -> str:
 # ROUTES
 @app.route('/')
 def welcome():
-    """Üdvöző oldal"""
+    """Üdvöző oldal - VERZIÓ INFORMÁCIÓ ELREJTVE"""
     return render_template('user_study/welcome.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Demográfiai adatok és beleegyezés"""
     if request.method == 'POST':
-        # Adatok mentése
         user_id = generate_user_id()
-        version = get_user_version()
+        version = get_user_version()  # Verzió hozzárendelés, de elrejtve
         
         demographics = {
             'age_group': request.form.get('age_group'),
@@ -317,68 +494,86 @@ def register():
 
 @app.route('/instructions')
 def instructions():
-    """Instrukciók oldal"""
+    """Instrukciók oldal - VERZIÓ ELREJTÉSE"""
     if 'user_id' not in session:
         return redirect(url_for('register'))
     
-    version = get_user_version()
-    return render_template('user_study/instructions.html', version=version)
+    # Verzió információt NEM adjuk át a template-nek
+    return render_template('user_study/instructions_hidden.html')
 
 @app.route('/study')
 def study():
-    """Fő tanulmány oldal - ajánlások megjelenítése"""
+    """Fő tanulmány oldal - valós magyar receptekkel"""
     if 'user_id' not in session:
         return redirect(url_for('register'))
     
     user_id = session['user_id']
     version = get_user_version()
     
-    # Felhasználói preferenciák (mostanra egyszerű)
-    user_preferences = {}
+    # Session tracking
+    if 'study_start_time' not in session:
+        session['study_start_time'] = datetime.datetime.now().isoformat()
+    
+    # Felhasználói preferenciák (később bővíthető)
+    user_preferences = {
+        'sustainability_awareness': session.get('sustainability_awareness', 3)
+    }
     
     # Ajánlások lekérése verzió alapján
     if version == 'v1':
-        recommendations = recommender.get_recommendations_v1(user_preferences)
+        recommendations = recommender.get_recommendations_v1(user_preferences, user_id)
     elif version == 'v2':
-        recommendations = recommender.get_recommendations_v2(user_preferences)
+        recommendations = recommender.get_recommendations_v2(user_preferences, user_id)
     else:  # v3
-        recommendations = recommender.get_recommendations_v3(user_preferences)
+        recommendations = recommender.get_recommendations_v3(user_preferences, user_id)
     
     # Interakció naplózása
     db.log_interaction(user_id, 'view_recommendations', 
                       data={'version': version, 'recommendation_count': len(recommendations)})
     
-    return render_template('user_study/study.html', 
-                         recommendations=recommendations, 
-                         version=version)
+    # VERZIÓ INFORMÁCIÓT NEM ADJUK ÁT
+    return render_template('user_study/study_enhanced.html', 
+                         recommendations=recommendations)
 
 @app.route('/rate_recipe', methods=['POST'])
 def rate_recipe():
-    """Recept értékelése"""
+    """Rețetá értékelése teljesítmény tracking-gel"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
     user_id = session['user_id']
+    version = get_user_version()
     recipe_id = int(request.json.get('recipe_id'))
     rating = int(request.json.get('rating'))
     explanation_helpful = request.json.get('explanation_helpful')
+    view_time = request.json.get('view_time_seconds', 0)
+    interaction_order = request.json.get('interaction_order', 0)
     
     # Értékelés mentése
     db.log_interaction(user_id, 'rate_recipe', 
                       recipe_id=recipe_id, 
                       rating=rating,
-                      explanation_helpful=explanation_helpful)
+                      explanation_helpful=explanation_helpful,
+                      view_time_seconds=view_time,
+                      interaction_order=interaction_order)
+    
+    # Teljesítmény metrikák frissítése
+    db.update_recipe_performance(recipe_id, version, rating)
     
     return jsonify({'success': True})
 
 @app.route('/questionnaire', methods=['GET', 'POST'])
 def questionnaire():
-    """Záró kérdőív"""
+    """Záró kérdőív - bővített kérdésekkel"""
     if 'user_id' not in session:
         return redirect(url_for('register'))
     
     if request.method == 'POST':
         user_id = session['user_id']
+        
+        # Teljesítmény metrikák számítása
+        ratings = session.get('recipe_ratings', [])
+        metrics = recommender.calculate_precision_recall(user_id, ratings)
         
         # Kérdőív válaszok mentése
         conn = sqlite3.connect(db.db_path)
@@ -387,8 +582,9 @@ def questionnaire():
         cursor.execute('''
             INSERT INTO questionnaire 
             (user_id, system_usability, recommendation_quality, trust_level, 
-             explanation_clarity, sustainability_importance, overall_satisfaction, additional_comments)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             explanation_clarity, sustainability_importance, overall_satisfaction,
+             perceived_personalization, would_use_again, additional_comments)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             user_id,
             int(request.form.get('system_usability')),
@@ -397,6 +593,8 @@ def questionnaire():
             int(request.form.get('explanation_clarity', 3)),
             int(request.form.get('sustainability_importance')),
             int(request.form.get('overall_satisfaction')),
+            int(request.form.get('perceived_personalization', 3)),
+            int(request.form.get('would_use_again', 3)),
             request.form.get('additional_comments', '')
         ))
         
@@ -406,23 +604,25 @@ def questionnaire():
         # Résztvevő befejezettként jelölése
         db.complete_participant(user_id)
         
+        # Metrikák session-be mentése
+        session['performance_metrics'] = metrics
+        
         return redirect(url_for('thank_you'))
     
-    version = get_user_version()
-    return render_template('user_study/questionnaire.html', version=version)
+    return render_template('user_study/questionnaire_enhanced.html')
 
 @app.route('/thank_you')
 def thank_you():
-    """Köszönjük oldal"""
+    """Köszönjük oldal - teljesítmény metrikákkal"""
     if 'user_id' not in session:
         return redirect(url_for('register'))
     
-    version = get_user_version()
-    return render_template('user_study/thank_you.html', version=version)
+    metrics = session.get('performance_metrics', {})
+    return render_template('user_study/thank_you_enhanced.html', metrics=metrics)
 
 @app.route('/admin/stats')
 def admin_stats():
-    """Adminisztrátori statisztikák"""
+    """Adminisztrátori statisztikák - teljesítmény metrikákkal"""
     try:
         conn = sqlite3.connect(db.db_path)
         
@@ -439,86 +639,49 @@ def admin_stats():
         
         stats['version_distribution'] = version_counts.to_dict('records')
         
-        # Átlagos értékelések
-        ratings = pd.read_sql_query('''
-            SELECT p.version, AVG(i.rating) as avg_rating
-            FROM participants p
-            JOIN interactions i ON p.user_id = i.user_id
-            WHERE i.rating IS NOT NULL
-            GROUP BY p.version
+        # Teljesítmény metrikák verzió szerint
+        performance_data = pd.read_sql_query('''
+            SELECT version, 
+                   AVG(precision_score) as avg_precision,
+                   AVG(recall_score) as avg_recall,
+                   AVG(f1_score) as avg_f1,
+                   COUNT(*) as recipe_count
+            FROM recipe_performance 
+            GROUP BY version
         ''', conn)
         
-        stats['average_ratings'] = ratings.to_dict('records')
+        stats['performance_metrics'] = performance_data.to_dict('records')
         
-        # Kérdőív eredmények
-        questionnaire_results = pd.read_sql_query('''
-            SELECT p.version, 
-                   AVG(q.system_usability) as avg_usability,
-                   AVG(q.recommendation_quality) as avg_quality,
-                   AVG(q.trust_level) as avg_trust,
-                   AVG(q.explanation_clarity) as avg_clarity,
-                   AVG(q.overall_satisfaction) as avg_satisfaction
-            FROM participants p
-            JOIN questionnaire q ON p.user_id = q.user_id
-            GROUP BY p.version
-        ''', conn)
-        
-        stats['questionnaire_results'] = questionnaire_results.to_dict('records')
-        
+        # További statisztikák...
         conn.close()
         
-        return render_template('user_study/admin_stats.html', stats=stats)
+        return render_template('user_study/admin_stats_enhanced.html', stats=stats)
         
     except Exception as e:
         return f"Statistics error: {e}", 500
 
-@app.route('/admin/export/<format>')
-def export_data(format):
-    """Adatok exportálása"""
-    if format not in ['csv', 'json']:
-        return "Invalid format", 400
-    
+@app.route('/admin/metrics')
+def admin_metrics():
+    """Részletes teljesítmény metrikák"""
     try:
         conn = sqlite3.connect(db.db_path)
         
-        # Összes adat lekérése
-        participants = pd.read_sql_query('SELECT * FROM participants', conn)
-        interactions = pd.read_sql_query('SELECT * FROM interactions', conn)
-        questionnaire = pd.read_sql_query('SELECT * FROM questionnaire', conn)
+        # Precision/Recall/F1 adatok
+        metrics_data = pd.read_sql_query('''
+            SELECT r.version, r.recipe_id, r.precision_score, r.recall_score, r.f1_score,
+                   r.total_ratings, r.avg_rating, rec.title
+            FROM recipe_performance r
+            LEFT JOIN (SELECT recipeid, title FROM processed_recipes LIMIT 100) rec 
+                ON r.recipe_id = rec.recipeid
+            ORDER BY r.f1_score DESC
+        ''', conn)
         
         conn.close()
         
-        if format == 'csv':
-            # CSV exportálás
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            participants.to_csv(f'results/participants_{timestamp}.csv', index=False)
-            interactions.to_csv(f'results/interactions_{timestamp}.csv', index=False)
-            questionnaire.to_csv(f'results/questionnaire_{timestamp}.csv', index=False)
-            
-            return f"Data exported to results/ folder with timestamp {timestamp}"
+        return jsonify(metrics_data.to_dict('records'))
         
-        else:  # json
-            data = {
-                'participants': participants.to_dict('records'),
-                'interactions': interactions.to_dict('records'),
-                'questionnaire': questionnaire.to_dict('records'),
-                'export_timestamp': datetime.datetime.now().isoformat()
-            }
-            return jsonify(data)
-    
     except Exception as e:
-        return f"Export error: {e}", 500
-
-@app.route('/health')
-def health():
-    """Health check endpoint"""
-    return {
-        'status': 'OK', 
-        'message': 'User Study System is running',
-        'timestamp': datetime.datetime.now().isoformat(),
-        'database': 'connected'
-    }
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Development szerver
