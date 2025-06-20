@@ -19,8 +19,10 @@ from flask import Blueprint, render_template, request, session, redirect, url_fo
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Blueprint létrehozása - FONTOS!
-user_study_bp = Blueprint('user_study', __name__, url_prefix='')
+# Blueprint létrehozása - Template path javítással
+user_study_bp = Blueprint('user_study', __name__, 
+                         url_prefix='',
+                         template_folder='templates')
 
 class DatabaseManager:
     """Adatbázis kezelő osztály"""
