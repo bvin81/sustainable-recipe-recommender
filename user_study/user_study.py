@@ -155,13 +155,13 @@ class UserStudyDatabase:
             print(f"Completion error: {e}")
 
 class RecipeRecommender:
-    """Rețetá ajánló rendszer három verzióval"""
+    """Recept ajánló rendszer három verzióval"""
     
     def __init__(self):
         self.recipes_df = self.load_recipes()
     
     def load_recipes(self) -> pd.DataFrame:
-        """Rețetá adatok betöltése"""
+        """Recept adatok betöltése"""
         try:
             csv_path = project_root / "data" / "processed_recipes.csv"
             if csv_path.exists():
@@ -174,7 +174,7 @@ class RecipeRecommender:
             return self.create_sample_recipes()
     
     def create_sample_recipes(self) -> pd.DataFrame:
-        """Sample rețetá adatok létrehozása"""
+        """Sample recept adatok létrehozása"""
         recipes = []
         
         sample_recipes = [
@@ -209,7 +209,7 @@ class RecipeRecommender:
         recommendations = self.recipes_df.nlargest(sample_size, 'PPI').to_dict('records')
         
         for rec in recommendations:
-            rec['explanation'] = f"Népszerű rețetá ({rec['PPI']:.1f}/1.0 pontszám)"
+            rec['explanation'] = f"Népszerű recept ({rec['PPI']:.1f}/1.0 pontszám)"
             rec['version'] = 'v1'
         
         return recommendations
@@ -354,7 +354,7 @@ def study():
 
 @app.route('/rate_recipe', methods=['POST'])
 def rate_recipe():
-    """Rețetá értékelése"""
+    """Recept értékelése"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
