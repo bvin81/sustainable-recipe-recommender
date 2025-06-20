@@ -34,3 +34,4 @@ Ez a projekt automatikusan deploy-ol Heroku-ra minden commit után GitHub Action
 
 ## 🏗️ Projekt Struktúra 
 <!-- Updated for Heroku deployment - 2025-01-20 -->
+<!-- Updated: REAL recipes now active -->
