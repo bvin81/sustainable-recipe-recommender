@@ -19,11 +19,15 @@ def create_app():
     if app_mode == 'user_study':
         try:
             # Próbáljuk betölteni a user study rendszert
-            from user_study.user_study import app as user_study_app
-            return user_study_app
+            sys.path.append(str(project_root / "user_study"))
+            import user_study
+            return user_study.app
         except ImportError as e:
             print(f"❌ User study import error: {e}")
             # Fallback app létrehozása
+            return create_fallback_app()
+        except Exception as e:
+            print(f"❌ User study error: {e}")
             return create_fallback_app()
     else:
         return create_fallback_app()
