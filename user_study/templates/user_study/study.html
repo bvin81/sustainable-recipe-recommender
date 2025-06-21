@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rețetá Ajánlások - Sustainable Recipe Recommender</title>
+    <title>Recept Ajánlások - Sustainable Recipe Recommender</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -68,10 +68,10 @@
             background: white;
             border: 2px solid #e0e0e0;
             border-radius: 15px;
-            padding: 25px;
+            padding: 0;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
             transition: all 0.3s ease;
-            position: relative;
+            overflow: hidden;
         }
         
         .recipe-card:hover {
@@ -84,6 +84,29 @@
             background: #f8fff8;
         }
         
+        .recipe-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .recipe-placeholder {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6c757d;
+            font-size: 3em;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .recipe-content {
+            padding: 25px;
+        }
+        
         .recipe-header {
             display: flex;
             justify-content: space-between;
@@ -92,7 +115,7 @@
         }
         
         .recipe-title {
-            font-size: 1.3em;
+            font-size: 1.4em;
             font-weight: bold;
             color: #2c3e50;
             margin: 0;
@@ -127,6 +150,50 @@
         .ingredients-list {
             color: #555;
             line-height: 1.4;
+        }
+        
+        .instructions {
+            background: #fff8e1;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .instructions-label {
+            font-weight: bold;
+            color: #e65100;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .instructions-text {
+            color: #5d4037;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .show-more-btn, .show-less-btn {
+            background: #ffc107;
+            color: #5d4037;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .show-more-btn:hover, .show-less-btn:hover {
+            background: #ffb300;
+            transform: translateY(-1px);
+        }
+        
+        .full-instructions {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #ffcc02;
         }
         
         .metrics {
@@ -190,6 +257,7 @@
             display: flex;
             gap: 5px;
             margin-bottom: 15px;
+            justify-content: center;
         }
         
         .star {
@@ -226,6 +294,7 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            justify-content: center;
         }
         
         .explanation-option {
@@ -368,13 +437,21 @@
             .star-rating {
                 justify-content: center;
             }
+            
+            .instructions-text {
+                font-size: 13px;
+            }
+            
+            .instructions-label {
+                font-size: 13px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🍽️ Rețetá Ajánlások</h1>
+            <h1>🍽️ Recept Ajánlások</h1>
             <p>Értékelje az alábbi ajánlásokat</p>
         </div>
 
@@ -393,7 +470,7 @@
         </div>
 
         <div class="instruction-banner">
-            <strong>📋 Feladat:</strong> Értékelje minden rețetát 1-5 csillag skálán az alapján, hogy mennyire tetszik Önnek!
+            <strong>📋 Feladat:</strong> Értékelje minden receptet 1-5 csillag skálán az alapján, hogy mennyire tetszik Önnek!
             {% if version == 'v2' or version == 'v3' %}
             <br><strong>💡 Plusz:</strong> Értékelje a magyarázatok hasznosságát is!
             {% endif %}
@@ -409,61 +486,99 @@
         <div class="recipe-grid">
             {% for recipe in recommendations %}
             <div class="recipe-card" data-recipe-id="{{ recipe.recipeid }}">
-                <div class="recipe-header">
-                    <h2 class="recipe-title">{{ recipe.title }}</h2>
-                    <span class="recipe-id">#{{ recipe.recipeid }}</span>
-                </div>
-
-                <div class="ingredients">
-                    <span class="ingredients-label">🥘 Főbb összetevők:</span>
-                    <div class="ingredients-list">{{ recipe.ingredients }}</div>
-                </div>
-
-                <div class="metrics">
-                    <div class="metric health">
-                        💚 Egészség: {{ "%.1f"|format(recipe.HSI) }}
-                    </div>
-                    <div class="metric environment">
-                        🌱 Környezet: {{ "%.1f"|format(recipe.ESI) }}
-                    </div>
-                    <div class="metric popularity">
-                        ⭐ Népszerűség: {{ "%.1f"|format(recipe.PPI) }}
-                    </div>
-                </div>
-
-                {% if version == 'v2' or version == 'v3' %}
-                <div class="explanation">
-                    <div class="explanation-title">
-                        💡 Miért ajánljuk ezt a rețetát?
-                    </div>
-                    <div class="explanation-content">
-                        {{ recipe.explanation|safe }}
-                    </div>
-                </div>
+                <!-- Recept kép -->
+                {% if recipe.images and recipe.images != '' %}
+                    <img src="{{ recipe.images }}" alt="{{ recipe.title }}" class="recipe-image" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="recipe-placeholder" style="display: none;">🍽️</div>
+                {% else %}
+                    <div class="recipe-placeholder">🍽️</div>
                 {% endif %}
 
-                <div class="rating-section">
-                    <div class="rating-title">⭐ Mennyire tetszik ez a rețetá?</div>
-                    
-                    <div class="star-rating" data-recipe-id="{{ recipe.recipeid }}">
-                        {% for i in range(1, 6) %}
-                        <span class="star" data-rating="{{ i }}">⭐</span>
-                        {% endfor %}
+                <div class="recipe-content">
+                    <div class="recipe-header">
+                        <h2 class="recipe-title">{{ recipe.title }}</h2>
+                        <span class="recipe-id">#{{ recipe.recipeid }}</span>
                     </div>
-                    
-                    <div class="rating-feedback" id="feedback-{{ recipe.recipeid }}"></div>
 
-                    {% if version == 'v2' or version == 'v3' %}
-                    <div class="explanation-rating">
-                        <div class="rating-title">💭 Mennyire volt hasznos a magyarázat?</div>
-                        <div class="explanation-options" data-recipe-id="{{ recipe.recipeid }}">
-                            <div class="explanation-option" data-helpful="1">Nagyon hasznos</div>
-                            <div class="explanation-option" data-helpful="2">Hasznos</div>
-                            <div class="explanation-option" data-helpful="3">Semleges</div>
-                            <div class="explanation-option" data-helpful="4">Nem hasznos</div>
+                    <!-- Összetevők -->
+                    <div class="ingredients">
+                        <span class="ingredients-label">🥘 Főbb összetevők:</span>
+                        <div class="ingredients-list">{{ recipe.ingredients }}</div>
+                    </div>
+
+                    <!-- Elkészítési mód -->
+                    {% if recipe.instructions and recipe.instructions != '' and recipe.instructions != 'nan' %}
+                    <div class="instructions">
+                        <span class="instructions-label">📋 Elkészítési mód:</span>
+                        <div class="instructions-text">
+                            {% if recipe.instructions|length > 300 %}
+                                {{ recipe.instructions[:300] }}...
+                                <button class="show-more-btn" onclick="toggleInstructions({{ recipe.recipeid }})">
+                                    Többet mutat
+                                </button>
+                                <div class="full-instructions" id="full-instructions-{{ recipe.recipeid }}" style="display: none;">
+                                    {{ recipe.instructions }}
+                                    <button class="show-less-btn" onclick="toggleInstructions({{ recipe.recipeid }})">
+                                        Kevesebbet mutat
+                                    </button>
+                                </div>
+                            {% else %}
+                                {{ recipe.instructions }}
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
+
+                    <!-- Pontszámok -->
+                    <div class="metrics">
+                        <div class="metric health">
+                            💚 Egészség: {{ "%.0f"|format(recipe.HSI) }}/100
+                        </div>
+                        <div class="metric environment">
+                            🌱 Környezet: {{ "%.0f"|format(recipe.ESI) }}/100
+                        </div>
+                        <div class="metric popularity">
+                            ⭐ Népszerűség: {{ "%.0f"|format(recipe.PPI) }}/100
+                        </div>
+                    </div>
+
+                    <!-- Magyarázat -->
+                    {% if version == 'v2' or version == 'v3' %}
+                    <div class="explanation">
+                        <div class="explanation-title">
+                            💡 Miért ajánljuk ezt a receptet?
+                        </div>
+                        <div class="explanation-content">
+                            {{ recipe.explanation|safe }}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Értékelési szekció -->
+                    <div class="rating-section">
+                        <div class="rating-title">⭐ Mennyire tetszik ez a recept?</div>
+                        
+                        <div class="star-rating" data-recipe-id="{{ recipe.recipeid }}">
+                            {% for i in range(1, 6) %}
+                            <span class="star" data-rating="{{ i }}">⭐</span>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="rating-feedback" id="feedback-{{ recipe.recipeid }}"></div>
+
+                        {% if version == 'v2' or version == 'v3' %}
+                        <div class="explanation-rating">
+                            <div class="rating-title">💭 Mennyire volt hasznos a magyarázat?</div>
+                            <div class="explanation-options" data-recipe-id="{{ recipe.recipeid }}">
+                                <div class="explanation-option" data-helpful="1">Nagyon hasznos</div>
+                                <div class="explanation-option" data-helpful="2">Hasznos</div>
+                                <div class="explanation-option" data-helpful="3">Semleges</div>
+                                <div class="explanation-option" data-helpful="4">Nem hasznos</div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             {% endfor %}
@@ -471,7 +586,7 @@
 
         <div class="continue-section">
             <div id="completionMessage" class="completion-message" style="display: none;">
-                🎉 <strong>Kiváló!</strong> Az összes rețetát értékelte. Most folytathatja a záró kérdőívvel.
+                🎉 <strong>Kiváló!</strong> Az összes receptet értékelte. Most folytathatja a záró kérdőívvel.
             </div>
             
             <button id="continueBtn" class="btn" onclick="location.href='/questionnaire'" disabled>
@@ -485,6 +600,22 @@
         const totalRecipes = {{ recommendations|length }};
         let recipeRatings = {};
         let explanationRatings = {};
+
+        // Toggle instructions functionality
+        function toggleInstructions(recipeId) {
+            const fullInstructions = document.getElementById(`full-instructions-${recipeId}`);
+            const isVisible = fullInstructions.style.display !== 'none';
+            
+            if (isVisible) {
+                fullInstructions.style.display = 'none';
+            } else {
+                fullInstructions.style.display = 'block';
+                fullInstructions.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest'
+                });
+            }
+        }
 
         // Star rating functionality
         document.querySelectorAll('.star-rating').forEach(ratingContainer => {
@@ -515,17 +646,11 @@
             
             options.forEach(option => {
                 option.addEventListener('click', () => {
-                    // Remove previous selection
                     options.forEach(opt => opt.classList.remove('selected'));
-                    
-                    // Add selection to clicked option
                     option.classList.add('selected');
                     
-                    // Store rating
                     const helpfulValue = parseInt(option.dataset.helpful);
                     explanationRatings[recipeId] = helpfulValue;
-                    
-                    // Send to server
                     sendExplanationRating(recipeId, helpfulValue);
                 });
             });
@@ -542,25 +667,19 @@
         }
 
         function setRating(recipeId, rating, stars) {
-            // Store rating
             if (!recipeRatings[recipeId]) {
                 ratingsGiven++;
                 updateProgress();
             }
             recipeRatings[recipeId] = rating;
             
-            // Visual feedback
             highlightStars(stars, rating);
             showRatingFeedback(recipeId, rating);
             
-            // Mark card as rated
             const card = document.querySelector(`[data-recipe-id="${recipeId}"]`);
             card.classList.add('rated');
             
-            // Send to server
             sendRating(recipeId, rating);
-            
-            // Check if all ratings given
             checkCompletion();
         }
 
@@ -594,7 +713,6 @@
                 document.getElementById('completionMessage').style.display = 'block';
                 document.getElementById('continueBtn').disabled = false;
                 
-                // Scroll to completion message
                 document.getElementById('completionMessage').scrollIntoView({
                     behavior: 'smooth',
                     block: 'center'
@@ -652,6 +770,15 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Study page loaded with version: {{ version }}');
             console.log('Total recipes to rate:', totalRecipes);
+            
+            // Debug: Check instructions
+            const instructionElements = document.querySelectorAll('.instructions');
+            console.log(`📋 Instructions found: ${instructionElements.length} recipes`);
+            
+            instructionElements.forEach((element, index) => {
+                const text = element.querySelector('.instructions-text').textContent;
+                console.log(`   ${index + 1}. recipe instructions length: ${text.length} characters`);
+            });
         });
     </script>
 </body>
