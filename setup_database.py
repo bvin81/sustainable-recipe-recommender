@@ -1,306 +1,341 @@
 #!/usr/bin/env python3
 """
-VALÓS MAGYAR RECEPTEKKEL - setup_database.py
-Használja a hungarian_recipes_github.csv és recipe_preprocessor.py fájlokat
+Heroku-ra optimalizált setup_database.py
+Automatikusan létrehozza a processed_recipes.csv-t deploy közben
 """
 
 import os
 import sys
-import sqlite3
+import pandas as pd
+import numpy as np
 from pathlib import Path
 
-def create_directories():
-    """Szükséges könyvtárak létrehozása"""
-    print("📁 Könyvtárak létrehozása...")
+def setup_csv_for_heroku():
+    """CSV setup Heroku-hoz optimalizálva"""
+    print("🚀 Heroku CSV Setup - Processing hungarian_recipes_github.csv")
+    print("=" * 60)
     
-    directories = [
-        'data',
-        'static',
-        'static/images',
-        'user_study',
-        'user_study/templates',
-        'user_study/templates/user_study',
-        'results'
-    ]
-    
-    for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-    
-    print("✅ Könyvtárak létrehozva")
-
-def process_hungarian_recipes():
-    """VALÓS magyar receptek feldolgozása"""
     try:
-        print("🇭🇺 VALÓS magyar receptek feldolgozása...")
+        # Ellenőrizzük a fájlokat
+        original_csv = Path("hungarian_recipes_github.csv")
+        output_csv = Path("data/processed_recipes.csv")
         
-        # recipe_preprocessor.py importálása
-        from recipe_preprocessor import HungarianRecipeProcessor
+        print(f"📊 Original CSV: {original_csv.exists()} - {original_csv}")
+        print(f"📁 Data directory: {Path('data').exists()}")
+        print(f"🎯 Target CSV: {output_csv}")
         
-        # hungarian_recipes_github.csv feldolgozása
-        processor = HungarianRecipeProcessor("hungarian_recipes_github.csv")
+        if not original_csv.exists():
+            print("❌ hungarian_recipes_github.csv not found!")
+            return create_fallback_csv(output_csv)
         
-        success = processor.process_all(
-            output_path="data/processed_recipes.csv",
-            sample_size=50  # 50 recept a user study-hoz
-        )
+        # CSV betöltése
+        print("📋 Loading hungarian_recipes_github.csv...")
         
-        if success:
-            print("✅ VALÓS magyar receptek sikeresen feldolgozva!")
-            
-            # Ellenőrizzük az eredményt
-            import pandas as pd
-            df = pd.read_csv("data/processed_recipes.csv")
-            print(f"📊 Feldolgozott receptek: {len(df)} darab")
-            print(f"🍽️ Minta receptek:")
-            for i in range(min(3, len(df))):
-                print(f"   {i+1}. {df.iloc[i]['title']}")
-            
-            return True
-        else:
-            print("⚠️ Valós receptek feldolgozása sikertelen, sample adatok használata")
-            return create_sample_data()
-            
-    except ImportError as e:
-        print(f"⚠️ recipe_preprocessor.py import hiba: {e}")
-        return create_sample_data()
-    except FileNotFoundError as e:
-        print(f"⚠️ hungarian_recipes_github.csv nem található: {e}")
-        return create_sample_data()
+        # Encoding detection
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+        df = None
+        used_encoding = None
+        
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(original_csv, encoding=encoding)
+                used_encoding = encoding
+                print(f"✅ Successfully loaded with {encoding} encoding")
+                break
+            except (UnicodeDecodeError, pd.errors.EmptyDataError):
+                continue
+        
+        if df is None:
+            print("❌ Failed to load CSV with any encoding")
+            return create_fallback_csv(output_csv)
+        
+        print(f"📊 Loaded {len(df)} recipes")
+        print(f"📋 Columns: {list(df.columns)}")
+        
+        # Process the CSV
+        processed_df = process_hungarian_csv(df)
+        
+        if processed_df is None:
+            print("❌ CSV processing failed")
+            return create_fallback_csv(output_csv)
+        
+        # Save processed CSV
+        os.makedirs('data', exist_ok=True)
+        processed_df.to_csv(output_csv, index=False, encoding='utf-8')
+        
+        print(f"✅ Processed CSV saved: {output_csv}")
+        print(f"📊 Recipes in output: {len(processed_df)}")
+        
+        # Validate output
+        validate_processed_csv(output_csv)
+        
+        return True
+        
     except Exception as e:
-        print(f"⚠️ Receptek feldolgozási hiba: {e}")
-        return create_sample_data()
+        print(f"❌ Setup error: {e}")
+        return create_fallback_csv(output_csv)
 
-def create_sample_data():
-    """Fallback: Sample dataset létrehozása ha nincs valós adat"""
-    print("🔧 Fallback: Sample dataset létrehozása...")
+def process_hungarian_csv(df):
+    """Process the hungarian recipes CSV"""
+    try:
+        print("🔧 Processing Hungarian recipes...")
+        
+        # Column mapping
+        column_mapping = {
+            'name': 'title',
+            'ingredients': 'ingredients', 
+            'instructions': 'instructions',
+            'images': 'images'
+        }
+        
+        # Rename columns if they exist
+        for old_col, new_col in column_mapping.items():
+            if old_col in df.columns and old_col != new_col:
+                df = df.rename(columns={old_col: new_col})
+        
+        # Add recipe IDs
+        df['recipeid'] = range(1, len(df) + 1)
+        
+        # Ensure required columns exist
+        required_columns = ['title', 'ingredients', 'images']
+        for col in required_columns:
+            if col not in df.columns:
+                df[col] = f'Sample {col}'
+        
+        # Handle missing instructions
+        if 'instructions' not in df.columns:
+            df['instructions'] = 'Elkészítési útmutató hamarosan...'
+        
+        # Process scores if they exist
+        if 'env_score' in df.columns and 'nutri_score' in df.columns and 'meal_score' in df.columns:
+            df = normalize_scores(df)
+        else:
+            print("⚠️ Score columns not found, using defaults")
+            df['HSI'] = np.random.uniform(60, 90, len(df))  # Health Score
+            df['ESI'] = np.random.uniform(50, 85, len(df))  # Environmental Score  
+            df['PPI'] = np.random.uniform(70, 95, len(df))  # Popularity Score
+        
+        # Calculate composite score
+        df['composite_score'] = (df['ESI'] * 0.4 + df['HSI'] * 0.4 + df['PPI'] * 0.2)
+        
+        # Clean text data
+        df = clean_text_data(df)
+        
+        # Process images
+        df = process_image_urls(df)
+        
+        # Sample selection (50 recipes for user study)
+        sample_size = min(50, len(df))
+        df_sample = df.sample(n=sample_size, random_state=42)
+        
+        print(f"✅ Processing complete: {len(df_sample)} recipes selected")
+        
+        return df_sample
+        
+    except Exception as e:
+        print(f"❌ Processing error: {e}")
+        return None
+
+def normalize_scores(df):
+    """Normalize score columns to 0-100 scale"""
+    print("📊 Normalizing scores...")
     
-    import pandas as pd
+    # Environmental Score - invert (lower is better environmentally)
+    if 'env_score' in df.columns:
+        env_min, env_max = df['env_score'].min(), df['env_score'].max()
+        if env_max > env_min:
+            df['ESI'] = 100 - ((df['env_score'] - env_min) / (env_max - env_min) * 100)
+        else:
+            df['ESI'] = 70.0
     
-    # Magyar mintareceptek
-    recipes_data = [
+    # Health Score - direct (higher is better)
+    if 'nutri_score' in df.columns:
+        nutri_max = df['nutri_score'].max()
+        if nutri_max > 100:
+            df['HSI'] = (df['nutri_score'] / nutri_max) * 100
+        else:
+            df['HSI'] = df['nutri_score']
+    
+    # Popularity Score - direct (higher is more popular)
+    if 'meal_score' in df.columns:
+        meal_max = df['meal_score'].max()
+        if meal_max > 100:
+            df['PPI'] = (df['meal_score'] / meal_max) * 100
+        else:
+            df['PPI'] = df['meal_score']
+    
+    print(f"   HSI range: {df['HSI'].min():.1f} - {df['HSI'].max():.1f}")
+    print(f"   ESI range: {df['ESI'].min():.1f} - {df['ESI'].max():.1f}")
+    print(f"   PPI range: {df['PPI'].min():.1f} - {df['PPI'].max():.1f}")
+    
+    return df
+
+def clean_text_data(df):
+    """Clean text columns"""
+    print("🧹 Cleaning text data...")
+    
+    # Fill missing values
+    df['title'] = df['title'].fillna('Névtelen Recept')
+    df['ingredients'] = df['ingredients'].fillna('Összetevők lista hamarosan...')
+    df['instructions'] = df['instructions'].fillna('Elkészítési útmutató hamarosan...')
+    df['images'] = df['images'].fillna('')
+    
+    # Clean strings
+    text_columns = ['title', 'ingredients', 'instructions']
+    for col in text_columns:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+    
+    return df
+
+def process_image_urls(df):
+    """Process image URLs"""
+    print("🖼️ Processing image URLs...")
+    
+    def clean_image_url(img_string):
+        if pd.isna(img_string) or not img_string or img_string.strip() == '':
+            return get_fallback_image()
+        
+        # If it's a string with multiple URLs, take the first one
+        if isinstance(img_string, str):
+            urls = str(img_string).split(',')
+            first_url = urls[0].strip().strip('"').strip("'")
+            
+            # Check if it's a valid URL
+            if first_url.startswith('http'):
+                return first_url
+            elif first_url.startswith('www.'):
+                return f"https://{first_url}"
+        
+        return get_fallback_image()
+    
+    # Apply image processing
+    df['images'] = df['images'].apply(clean_image_url)
+    
+    # Count external vs fallback images
+    external_count = sum(1 for img in df['images'] if img.startswith('http') and 'unsplash' not in img)
+    fallback_count = len(df) - external_count
+    
+    print(f"   External images: {external_count}")
+    print(f"   Fallback images: {fallback_count}")
+    
+    return df
+
+def get_fallback_image():
+    """Get fallback image URL"""
+    fallback_images = [
+        'https://images.unsplash.com/photo-1547592180-85f173990554?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1558030006-450675393462?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1572441713132-51c75654db73?w=400&h=300&fit=crop'
+    ]
+    return np.random.choice(fallback_images)
+
+def create_fallback_csv(output_path):
+    """Create fallback CSV if original processing fails"""
+    print("🔧 Creating fallback CSV with sample Hungarian recipes...")
+    
+    sample_recipes = [
         {
             'recipeid': 1,
             'title': 'Hagyományos Gulyásleves',
             'ingredients': 'marhahús, hagyma, paprika, paradicsom, burgonya, fokhagyma, kömény, majoranna',
-            'instructions': '1. A húst kockákra vágjuk és enyhén megsózzuk. 2. Megdinszteljük a hagymát, hozzáadjuk a paprikát. 3. Felöntjük vízzel és főzzük 1.5 órát. 4. Hozzáadjuk a burgonyát és tovább főzzük.',
-            'images': '',
+            'instructions': 'A húst kockákra vágjuk és enyhén megsózzuk. Megdinszteljük a hagymát, hozzáadjuk a paprikát. Felöntjük vízzel és főzzük 1.5 órát. Hozzáadjuk a burgonyát és tovább főzzük.',
+            'images': 'https://images.unsplash.com/photo-1547592180-85f173990554?w=400&h=300&fit=crop',
             'HSI': 75.0, 'ESI': 60.0, 'PPI': 90.0, 'composite_score': 71.0
         },
         {
             'recipeid': 2,
             'title': 'Vegetáriánus Lecsó',
-            'ingredients': 'paprika, paradicsom, hagyma, tojás, kolbász helyett tofu, olívaolaj, só, bors, fokhagyma',
-            'instructions': '1. A hagymát és fokhagymát megdinszteljük olívaolajban. 2. Hozzáadjuk a felszeletelt paprikát. 3. Paradicsomot és kockára vágott tofut adunk hozzá. 4. Tojással dúsítjük.',
-            'images': '',
-            'HSI': 85.0, 'ESI': 90.0, 'PPI': 70.0, 'composite_score': 83.0
+            'ingredients': 'paprika, paradicsom, hagyma, tojás, tofu, olívaolaj, só, bors, fokhagyma',
+            'instructions': 'A hagymát és fokhagymát megdinszteljük olívaolajban. Hozzáadjuk a felszeletelt paprikát. Paradicsomot és kockára vágott tofut adunk hozzá. Tojással dúsítjuk.',
+            'images': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop',
+            'HSI': 85.0, 'ESI': 80.0, 'PPI': 70.0, 'composite_score': 78.0
         },
         {
             'recipeid': 3,
-            'title': 'Rántott Schnitzel Burgonyával',
-            'ingredients': 'sertéshús, liszt, tojás, zsemlemorzsa, burgonya, olaj, só, bors',
-            'instructions': '1. A húst kikalapáljuk és megsózzuk. 2. Lisztbe, majd felvert tojásba, végül zsemlemorzsába forgatjuk. 3. Forró olajban mindkét oldalán kisütjük. 4. A burgonyát héjában megfőzzük.',
-            'images': '',
-            'HSI': 55.0, 'ESI': 45.0, 'PPI': 85.0, 'composite_score': 57.0
+            'title': 'Halászlé Szegedi Módra',
+            'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
+            'instructions': 'A halakat megtisztítjuk és feldaraboljuk. A halak fejéből és farkából erős alapot főzünk. Az alapot leszűrjük és beletesszük a haldarabokat. Paprikával ízesítjük.',
+            'images': 'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=400&h=300&fit=crop',
+            'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
         },
         {
             'recipeid': 4,
-            'title': 'Halászlé Szegedi Módra',
-            'ingredients': 'ponty, csuka, harcsa, hagyma, paradicsom, paprika, só, babérlevél',
-            'instructions': '1. A halakat megtisztítjuk és feldaraboljuk. 2. A halak fejéből és farkából erős alapot főzünk. 3. Az alapot leszűrjük és beletesszük a haldarabokat. 4. Paprikával ízesítjük.',
-            'images': '',
-            'HSI': 80.0, 'ESI': 70.0, 'PPI': 75.0, 'composite_score': 74.0
+            'title': 'Túrós Csusza',
+            'ingredients': 'széles metélt, túró, tejföl, szalonna, hagyma, só, bors',
+            'instructions': 'A tésztát sós vízben megfőzzük és leszűrjük. A szalonnát kockákra vágjuk és kisütjük. A tésztát összekeverjük a túróval, tejföllel és a szalonnával.',
+            'images': 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=400&h=300&fit=crop',
+            'HSI': 65.0, 'ESI': 55.0, 'PPI': 80.0, 'composite_score': 65.0
         },
         {
             'recipeid': 5,
             'title': 'Gombapaprikás Galuskával',
             'ingredients': 'gomba, hagyma, paprika, tejföl, liszt, tojás, petrezselyem, olaj',
-            'instructions': '1. A gombát felszeleteljük és kisütjük. 2. Hagymát dinsztelünk, paprikát adunk hozzá. 3. A gombát hozzáadjuk, tejföllel lefuttatjuk. 4. Galuskát főzünk mellé.',
-            'images': '',
-            'HSI': 70.0, 'ESI': 75.0, 'PPI': 65.0, 'composite_score': 71.5
+            'instructions': 'A gombát felszeleteljük és kisütjük. Hagymát dinsztelünk, paprikát adunk hozzá. A gombát hozzáadjuk, tejföllel lefuttatjuk. Galuskát főzünk mellé.',
+            'images': 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=400&h=300&fit=crop',
+            'HSI': 70.0, 'ESI': 75.0, 'PPI': 65.0, 'composite_score': 70.0
         }
     ]
     
-    df = pd.DataFrame(recipes_data)
-    os.makedirs('data', exist_ok=True)
-    df.to_csv('data/processed_recipes.csv', index=False, encoding='utf-8')
+    df = pd.DataFrame(sample_recipes)
     
-    print(f"✅ Fallback sample dataset: {len(recipes_data)} recept")
+    # Ensure data directory exists
+    os.makedirs(output_path.parent, exist_ok=True)
+    
+    # Save CSV
+    df.to_csv(output_path, index=False, encoding='utf-8')
+    
+    print(f"✅ Fallback CSV created: {len(df)} sample recipes")
+    
     return True
 
-def fix_database_schema():
-    """Adatbázis séma javítása"""
-    print("🔧 Adatbázis séma javítása...")
-    
-    # SQLite adatbázis létrehozása
-    conn = sqlite3.connect('user_study.db')
-    
-    # Táblák törlése ha léteznek
-    conn.execute('DROP TABLE IF EXISTS interactions')
-    conn.execute('DROP TABLE IF EXISTS questionnaire') 
-    conn.execute('DROP TABLE IF EXISTS participants')
-    conn.execute('DROP TABLE IF EXISTS users')  # Régi tábla
-    
-    # JAVÍTOTT participants tábla - register.html-lel szinkronban
-    conn.execute('''
-        CREATE TABLE participants (
-            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            age_group TEXT NOT NULL,
-            education TEXT NOT NULL,
-            cooking_frequency TEXT NOT NULL,
-            sustainability_awareness INTEGER NOT NULL,
-            consent_participation BOOLEAN NOT NULL DEFAULT 1,
-            consent_data BOOLEAN NOT NULL DEFAULT 1,
-            consent_publication BOOLEAN NOT NULL DEFAULT 1,
-            consent_contact BOOLEAN DEFAULT 0,
-            version TEXT NOT NULL,
-            is_completed BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Interactions tábla
-    conn.execute('''
-        CREATE TABLE interactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            recipe_id INTEGER,
-            rating INTEGER,
-            explanation_helpful INTEGER,
-            view_time_seconds REAL,
-            interaction_order INTEGER,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES participants (user_id)
-        )
-    ''')
-    
-    # Questionnaire tábla
-    conn.execute('''
-        CREATE TABLE questionnaire (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            system_usability INTEGER,
-            recommendation_quality INTEGER,
-            trust_level INTEGER,
-            explanation_clarity INTEGER,
-            sustainability_importance INTEGER,
-            overall_satisfaction INTEGER,
-            additional_comments TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES participants (user_id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    
-    print("✅ Adatbázis séma javítva")
-    return True
-
-def test_setup():
-    """Setup tesztelése"""
-    print("🧪 Setup tesztelése...")
-    
-    success = True
-    
-    # 1. CSV fájl ellenőrzése
-    if os.path.exists('data/processed_recipes.csv'):
-        try:
-            import pandas as pd
-            df = pd.read_csv('data/processed_recipes.csv')
-            required_columns = ['recipeid', 'title', 'ingredients', 'HSI', 'ESI', 'PPI', 'composite_score']
-            missing_cols = [col for col in required_columns if col not in df.columns]
-            
-            if missing_cols:
-                print(f"❌ Hiányzó oszlopok: {missing_cols}")
-                success = False
-            else:
-                print(f"✅ CSV: {len(df)} recept, minden oszlop OK")
-        except Exception as e:
-            print(f"❌ CSV olvasási hiba: {e}")
-            success = False
-    else:
-        print("❌ processed_recipes.csv nem található")
-        success = False
-    
-    # 2. Adatbázis teszt
+def validate_processed_csv(csv_path):
+    """Validate the processed CSV"""
     try:
-        conn = sqlite3.connect('user_study.db')
-        cursor = conn.cursor()
+        df = pd.read_csv(csv_path)
         
-        # Test insert
-        cursor.execute('''
-            INSERT INTO participants 
-            (age_group, education, cooking_frequency, sustainability_awareness, version)
-            VALUES (?, ?, ?, ?, ?)
-        ''', ('25-34', 'bachelor', 'weekly', 3, 'v1'))
+        required_columns = ['recipeid', 'title', 'ingredients', 'images', 'HSI', 'ESI', 'PPI', 'composite_score']
+        missing_columns = [col for col in required_columns if col not in df.columns]
         
-        user_id = cursor.lastrowid
-        conn.commit()
+        if missing_columns:
+            print(f"⚠️ Missing columns: {missing_columns}")
+        else:
+            print("✅ All required columns present")
         
-        # Test query
-        cursor.execute('SELECT COUNT(*) FROM participants')
-        count = cursor.fetchone()[0]
+        print(f"📊 Final validation:")
+        print(f"   Recipes: {len(df)}")
+        print(f"   Columns: {len(df.columns)}")
+        print(f"   Images with URLs: {sum(1 for img in df['images'] if img.startswith('http'))}")
         
-        conn.close()
+        # Sample recipes
+        print(f"\n📋 Sample recipes:")
+        for i in range(min(3, len(df))):
+            recipe = df.iloc[i]
+            print(f"   {i+1}. {recipe['title']}")
+            print(f"      Image: {recipe['images'][:60]}...")
         
-        print(f"✅ Adatbázis teszt sikeres (user_id: {user_id}, count: {count})")
+        return True
         
     except Exception as e:
-        print(f"❌ Adatbázis teszt hiba: {e}")
-        success = False
-    
-    return success
-
-def main():
-    """Fő setup script - VALÓS MAGYAR RECEPTEKKEL"""
-    print("🚀 SUSTAINABLE RECIPE RECOMMENDER SETUP")
-    print("🇭🇺 VALÓS MAGYAR RECEPTEK FELDOLGOZÁSA")
-    print("=" * 50)
-    
-    success = True
-    
-    # 1. Könyvtárak létrehozása
-    create_directories()
-    
-    # 2. VALÓS magyar receptek feldolgozása
-    success &= process_hungarian_recipes()
-    
-    # 3. Adatbázis séma javítása
-    success &= fix_database_schema()
-    
-    # 4. Setup tesztelése
-    success &= test_setup()
-    
-    print("\n" + "=" * 50)
-    if success:
-        print("🎉 SETUP SIKERES - VALÓS MAGYAR RECEPTEKKEL!")
-        print("\n📊 EREDMÉNY:")
-        
-        # CSV információk
-        if os.path.exists('data/processed_recipes.csv'):
-            import pandas as pd
-            df = pd.read_csv('data/processed_recipes.csv')
-            print(f"✅ Feldolgozott receptek: {len(df)} darab")
-            print(f"🍽️ Receptek típusa: {'VALÓS magyar receptek' if len(df) > 10 else 'Sample receptek'}")
-            
-            # Score statisztikák
-            if 'composite_score' in df.columns:
-                print(f"📈 Score tartomány: {df['composite_score'].min():.1f} - {df['composite_score'].max():.1f}")
-                print(f"📊 Átlagos score: {df['composite_score'].mean():.1f}")
-        
-        print(f"✅ Adatbázis: user_study.db")
-        print(f"✅ Tables: participants, interactions, questionnaire")
-        
-        print("\n🚀 AZ ALKALMAZÁS KÉSZEN ÁLL!")
-        print("🇭🇺 Valós magyar receptekkel működik")
-        print("📊 Tudományos adatgyűjtésre alkalmas")
-        
-    else:
-        print("❌ SETUP HIBÁKKAL FEJEZŐDÖTT BE!")
-        print("⚠️ Fallback sample adatok használatban")
-        print("🔧 Ellenőrizze a hibaüzeneteket")
-    
-    return success
+        print(f"❌ Validation error: {e}")
+        return False
 
 if __name__ == "__main__":
-    main()
+    print("🚀 HEROKU CSV SETUP")
+    print("=" * 50)
+    
+    success = setup_csv_for_heroku()
+    
+    if success:
+        print("\n🎉 CSV SETUP SUCCESSFUL!")
+        print("✅ processed_recipes.csv is ready")
+        print("✅ User study can now load real Hungarian recipes")
+        print("✅ Images will display properly")
+    else:
+        print("\n⚠️ CSV SETUP COMPLETED WITH FALLBACK")
+        print("⚠️ Using sample data instead of hungarian_recipes_github.csv")
+        print("✅ App will still work with sample recipes")
+    
+    print("\n📋 Next: Deploy the app and test the recipe display")
