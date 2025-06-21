@@ -122,19 +122,158 @@ def process_hungarian_csv(df):
         df = clean_text_data(df)
         
         # Process images
+       def process_image_urls(df):
+    """Process image URLs - JAVÍTOTT verzió idézőjelek és többszörös URL-ek kezelésével"""
+    print("🖼️ Processing image URLs...")
+    
+    def clean_image_url(img_string):
+        """Clean image URL - eltávolítja az idézőjeleket és veszi az első URL-t"""
+        
+        if pd.isna(img_string) or not img_string:
+            return get_fallback_image()
+        
+        # String-gé konvertálás
+        img_str = str(img_string).strip()
+        
+        # Üres ellenőrzés
+        if not img_str or img_str.lower() in ['nan', '', 'null']:
+            return get_fallback_image()
+        
+        # KULCS FIX: Idézőjelek eltávolítása
+        img_str = img_str.strip('"').strip("'")
+        
+        # Többszörös URL kezelése - vesszővel elválasztott
+        if ',' in img_str:
+            urls = img_str.split(',')
+            first_url = urls[0].strip().strip('"').strip("'")
+        else:
+            first_url = img_str
+        
+        # URL validálás és javítás
+        if first_url.startswith('http'):
+            # HTTPS biztosítása
+            if first_url.startswith('http://'):
+                first_url = first_url.replace('http://', 'https://')
+            
+            print(f"   ✅ Valid image URL: {first_url[:60]}...")
+            return first_url
+        
+        elif first_url.startswith('www.'):
+            clean_url = f"https://{first_url}"
+            print(f"   🔧 Fixed www URL: {clean_url[:60]}...")
+            return clean_url
+        
+        else:
+            print(f"   ⚠️ Invalid URL format: {first_url[:60]}...")
+            return get_fallback_image()
+    
+    # Apply image processing
+    print(f"🔍 Processing {len(df)} image URLs...")
+    df['images'] = df['images'].apply(clean_image_url)
+    
+    # Debug: első 5 kép ellenőrzése
+    print(f"🖼️ Processed image URLs (first 5):")
+    for i in range(min(5, len(df))):
+        recipe = df.iloc[i]
+        print(f"   {i+1}. {recipe['title'][:30]}...")
+        print(f"      Image: {recipe['images']}")
+    
+    # Statisztika
+    valid_images = sum(1 for img in df['images'] if img.startswith('http') and 'fallback' not in img)
+    fallback_images = len(df) - valid_images
+    
+    print(f"📊 Image processing results:")
+    print(f"   ✅ Valid external images: {valid_images}")
+    print(f"   🔄 Fallback images: {fallback_images}")
+    
+    return df
+
+def get_fallback_image():
+    """Get fallback image URL"""
+    # Garantáltan működő Unsplash képek
+    fallback_images = [
+        'https://images.unsplash.com/photo-1547592180-85f173990554?w=400&h=300&fit=crop&auto=format',
+        'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop&auto=format', 
+        'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=400&h=300&fit=crop&auto=format',
+        'https://images.unsplash.com/photo-1558030006-450675393462?w=400&h=300&fit=crop&auto=format',
+        'https://images.unsplash.com/photo-1572441713132-51c75654db73?w=400&h=300&fit=crop&auto=format'
+    ]
+    return np.random.choice(fallback_images)
+
+def process_original_csv(original_path, output_path):
+    """Eredeti CSV feldolgozása - ENCODING FIX-szel"""
+    try:
+        # TÖBB ENCODING PRÓBÁLÁSA
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1', 'windows-1252']
+        df = None
+        used_encoding = None
+        
+        for encoding in encodings:
+            try:
+                print(f"🔄 Próbálkozás {encoding} encoding-gal...")
+                df = pd.read_csv(original_path, encoding=encoding)
+                used_encoding = encoding
+                print(f"✅ Sikeres betöltés {encoding} encoding-gal!")
+                break
+            except (UnicodeDecodeError, pd.errors.EmptyDataError) as e:
+                print(f"   ❌ {encoding} sikertelen: {str(e)[:50]}...")
+                continue
+        
+        if df is None:
+            print("❌ CSV betöltés minden encoding-gal sikertelen!")
+            return CSVProcessor.create_sample_csv(output_path)
+        
+        print(f"📋 Eredeti CSV betöltve: {len(df)} recept, encoding: {used_encoding}")
+        print(f"📋 Oszlopok: {list(df.columns)}")
+        
+        # Column mapping
+        column_mapping = {
+            'name': 'title',
+            'ingredients': 'ingredients', 
+            'instructions': 'instructions',
+            'images': 'images'
+        }
+        
+        # Rename columns if they exist
+        for old_col, new_col in column_mapping.items():
+            if old_col in df.columns and old_col != new_col:
+                df = df.rename(columns={old_col: new_col})
+        
+        # Add recipe IDs
+        df['recipeid'] = range(1, len(df) + 1)
+        
+        # Process scores
+        if all(col in df.columns for col in ['env_score', 'nutri_score', 'meal_score']):
+            df = CSVProcessor.normalize_scores(df)
+            print("✅ Score normalizálás kész")
+        else:
+            print("⚠️ Score oszlopok hiányoznak, random értékek")
+            df['HSI'] = np.random.uniform(60, 90, len(df))
+            df['ESI'] = np.random.uniform(50, 85, len(df))  
+            df['PPI'] = np.random.uniform(70, 95, len(df))
+        
+        # Calculate composite score
+        df['composite_score'] = (df['ESI'] * 0.4 + df['HSI'] * 0.4 + df['PPI'] * 0.2)
+        
+        # Clean text data
+        df = CSVProcessor.clean_text_data(df)
+        
+        # KULCS: Képek feldolgozása a javított függvénnyel
         df = process_image_urls(df)
         
-        # Sample selection (50 recipes for user study)
+        # Sample selection
         sample_size = min(50, len(df))
         df_sample = df.sample(n=sample_size, random_state=42)
         
-        print(f"✅ Processing complete: {len(df_sample)} recipes selected")
+        # Save
+        df_sample.to_csv(output_path, index=False, encoding='utf-8')
+        print(f"✅ Processed CSV mentve: {output_path} ({len(df_sample)} recept)")
         
-        return df_sample
+        return output_path
         
     except Exception as e:
-        print(f"❌ Processing error: {e}")
-        return None
+        print(f"❌ CSV feldolgozási hiba: {e}")
+        return CSVProcessor.create_sample_csv(output_path)
 
 def normalize_scores(df):
     """Normalize score columns to 0-100 scale"""
